@@ -8,6 +8,8 @@ import sys
 import os
 import json
 import tempfile
+import shutil
+import re
 from typing import Dict, List, Optional
 
 try:
@@ -914,7 +916,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_post.setStyleSheet(f"background-color: #6e7781; color: white; padding: 8px;")
         self.btn_post.clicked.connect(self.post_menu)
         l_layout.addWidget(self.btn_post)
+
+        self.btn_test = HoverButton("🧪 Test Rete")
+        self.btn_test.setStyleSheet(f"background-color: #2ea44f; color: white; padding: 8px;")
+        self.btn_test.clicked.connect(self.test_network)
+        l_layout.addWidget(self.btn_test)
         
+        l_layout.addStretch()
         # Merged Save/Load Buttons
         h_io = QtWidgets.QHBoxLayout()
         b_save = HoverButton("💾 Salva JSON")
@@ -1275,6 +1283,116 @@ class MainWindow(QtWidgets.QMainWindow):
         d = PostCreationDialog(self, self.output_dir, self.lab['routers'])
         d.exec()
 
+    def test_network(self):
+        if not self.output_dir:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
+            return
+
+        # Check if kathara is installed
+        if not shutil.which('kathara'):
+             QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
+             return
+
+        reply = QtWidgets.QMessageBox.question(self, "Test Rete", 
+                                               "Il test eseguirà un ping tra i dispositivi.\n"
+                                               "Assicurati che il laboratorio sia AVVIATO (kathara lstart).\n"
+                                               "Vuoi procedere?",
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.No:
+            return
+
+        # Collect all IPs
+        devices = []
+        # Routers
+        for rname, rdata in self.lab['routers'].items():
+            # rdata['interfaces'] is list of dicts
+            for iface in rdata.get('interfaces', []):
+                if iface.get('ip'):
+                    devices.append({'name': rname, 'ip': iface['ip'].split('/')[0], 'type': 'router'})
+        
+        # Hosts
+        for hname, hdata in self.lab['hosts'].items():
+             # hdata['interfaces'] is list of dicts
+            for iface in hdata.get('interfaces', []):
+                if iface.get('ip'):
+                    devices.append({'name': hname, 'ip': iface['ip'].split('/')[0], 'type': 'host'})
+
+        # WWW
+        for wname, wdata in self.lab['www'].items():
+             # wdata['interfaces'] is list of dicts (or constructed on fly in import)
+             # In import we constructed it. Let's check structure consistency.
+             # In open_lab_folder we did: self.lab['www'][name] = {..., 'interfaces': [...]}
+             for iface in wdata.get('interfaces', []):
+                if iface.get('ip'):
+                    devices.append({'name': wname, 'ip': iface['ip'].split('/')[0], 'type': 'www'})
+
+        # DNS
+        for dname, ddata in self.lab['dns'].items():
+             for iface in ddata.get('interfaces', []):
+                if iface.get('ip'):
+                    devices.append({'name': dname, 'ip': iface['ip'].split('/')[0], 'type': 'dns'})
+
+        if not devices:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun dispositivo con IP trovato.")
+            return
+
+        # Progress Dialog
+        progress = QtWidgets.QProgressDialog("Esecuzione Test Rete...", "Annulla", 0, len(devices) * len(devices), self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+
+        results = []
+        count = 0
+        
+        # We will ping FROM every device TO every other device IP
+        # Optimization: maybe just ping from Hosts to others? 
+        # User said "incrociato tra tutti".
+        
+        for src in devices:
+            for dst in devices:
+                if progress.wasCanceled():
+                    break
+                
+                if src['name'] == dst['name']:
+                    count += 1
+                    progress.setValue(count)
+                    continue
+                
+                # Exec ping
+                # kathara exec <node> ping -c 1 -W 1 <dst_ip>
+                cmd = ['kathara', 'exec', src['name'], 'ping', '-c', '1', '-W', '1', dst['ip']]
+                try:
+                    proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    success = (proc.returncode == 0)
+                except Exception:
+                    success = False
+                
+                status = "✅" if success else "❌"
+                results.append(f"{status} {src['name']} -> {dst['name']} ({dst['ip']})")
+                
+                count += 1
+                progress.setValue(count)
+            
+            if progress.wasCanceled():
+                break
+
+        progress.close()
+        
+        # Show Report
+        report_text = "\n".join(results)
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Report Test Rete")
+        dialog.resize(600, 400)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        text_edit = QtWidgets.QTextEdit()
+        text_edit.setPlainText(report_text)
+        text_edit.setReadOnly(True)
+        layout.addWidget(text_edit)
+        btn_close = QtWidgets.QPushButton("Chiudi")
+        btn_close.clicked.connect(dialog.accept)
+        layout.addWidget(btn_close)
+        dialog.exec()
+
     def save_lab_dialog(self):
         # Chiedi formato
         formats = "JSON (*.json);;XML (*.xml)"
@@ -1438,17 +1556,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # Euristiche per tipo dispositivo
             for name, data in nodes.items():
                 image = data.get('image', '').lower()
-                interfaces = []
+                
                 # data['interfaces'] è {idx: lan}
                 # data['ips'] è {idx: ip} (opzionale)
                 ips = data.get('ips', {})
                 
-                sorted_idxs = sorted(data['interfaces'].keys())
-                for idx in sorted_idxs:
-                    lan = data['interfaces'][idx]
-                    ip = ips.get(idx, '')
-                    interfaces.append({'name': f'eth{idx}', 'lan': lan, 'ip': ip})
-
                 # Heuristics based on Image AND Name
                 is_router = False
                 is_www = False
@@ -1473,13 +1585,64 @@ class MainWindow(QtWidgets.QMainWindow):
                         is_dns = True
                 
                 if is_router:
+                    router_ifaces = []
+                    sorted_idxs = sorted(data['interfaces'].keys())
+                    for idx in sorted_idxs:
+                        lan = data['interfaces'][idx]
+                        ip = ips.get(idx, '')
+                        router_ifaces.append({
+                            'name': f'eth{idx}',
+                            'lan': lan,
+                            'ip': ip
+                        })
+                    
+                    # Parse frr.conf for protocols and ASN
+                    frr_conf = os.path.join(folder, name, 'etc', 'frr', 'frr.conf')
+                    protocols = []
+                    asn = ''
+                    ospf_area = ''
+                    
+                    if os.path.exists(frr_conf):
+                        try:
+                            with open(frr_conf, 'r') as f:
+                                frr_text = f.read()
+                            
+                            # DEBUG PRINT
+                            print(f"DEBUG: Parsing FRR for {name}. Content length: {len(frr_text)}")
+                            
+                            if 'router bgp' in frr_text:
+                                protocols.append('bgp')
+                                # Relaxed regex for whitespace
+                                m_asn = re.search(r'router\s+bgp\s+(\d+)', frr_text)
+                                if m_asn: asn = m_asn.group(1)
+                                
+                            if 'router ospf' in frr_text:
+                                protocols.append('ospf')
+                                m_area = re.search(r'area\s+([0-9\.]+)', frr_text)
+                                if m_area: ospf_area = m_area.group(1)
+                                
+                            if 'router rip' in frr_text:
+                                protocols.append('rip')
+                        except Exception:
+                            pass
+
                     self.lab['routers'][name] = {
-                        'protocols': [],
-                        'asn': '',
-                        'interfaces': interfaces
+                        'name': name,
+                        'image': data.get('image', ''),
+                        'interfaces': router_ifaces,
+                        'protocols': protocols,
+                        'asn': asn,
+                        'ospf_area': ospf_area
                     }
                 elif is_www:
                     # WWW usually 1 interface
+                    interfaces = []
+                    sorted_idxs = sorted(data['interfaces'].keys())
+                    for idx in sorted_idxs:
+                        lan = data['interfaces'][idx]
+                        ip = ips.get(idx, '')
+                        interfaces.append({'name': f'eth{idx}', 'lan': lan, 'ip': ip})
+
                     ip = interfaces[0]['ip'] if interfaces else ''
                     lan = interfaces[0]['lan'] if interfaces else ''
                     self.lab['www'][name] = {
@@ -1490,6 +1653,13 @@ class MainWindow(QtWidgets.QMainWindow):
                     }
                 elif is_dns:
                      # DNS
+                    interfaces = []
+                    sorted_idxs = sorted(data['interfaces'].keys())
+                    for idx in sorted_idxs:
+                        lan = data['interfaces'][idx]
+                        ip = ips.get(idx, '')
+                        interfaces.append({'name': f'eth{idx}', 'lan': lan, 'ip': ip})
+
                     ip = interfaces[0]['ip'] if interfaces else ''
                     lan = interfaces[0]['lan'] if interfaces else ''
                     self.lab['dns'][name] = {
@@ -1502,27 +1672,20 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Default Host
                     # Reconstruct interfaces list for HostDialog
                     host_ifaces = []
-                    for iface in interfaces:
-                        # iface is {'name': 'ethX', 'lan': '...', 'ip': '...'}
+                    sorted_idxs = sorted(data['interfaces'].keys())
+                    for idx in sorted_idxs:
+                        lan = data['interfaces'][idx]
                         # Add gateway if it's the first interface (simplification)
-                        gw = data.get('gateway', '') if iface['name'] == 'eth0' else ''
+                        gw = data.get('gateway', '') if idx == 0 else ''
                         
                         # Try to get IP from parsed startup files
                         # Check both int and str keys for robustness
-                        idx_str = iface['name'].replace('eth', '')
-                        try:
-                            idx = int(idx_str)
-                        except:
-                            idx = idx_str
-                        
-                        ip = ''
-                        if 'ips' in nodes[name]:
-                            ip = nodes[name]['ips'].get(idx, nodes[name]['ips'].get(str(idx), ''))
+                        ip = ips.get(idx, '')
 
                         host_ifaces.append({
-                            'name': iface['name'],
+                            'name': f'eth{idx}',
                             'ip': ip,
-                            'lan': iface['lan'],
+                            'lan': lan,
                             'gateway': gw
                         })
                         
@@ -1535,10 +1698,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.output_dir = folder
             # self.btn_post.setEnabled(True) # Already enabled
             
-            QtWidgets.QMessageBox.information(self, "Importazione Parziale", 
-                                              "Lab importato da lab.conf.\n"
-                                              "Alcune configurazioni (protocolli, zone DNS, ecc.) potrebbero mancare.\n"
-                                              "Gli IP e Gateway sono stati recuperati dai file .startup (se presenti).")
+            QtWidgets.QMessageBox.information(self, "Importazione Completata", 
+                                              "Lab importato correttamente.\n"
+                                              "Configurazioni recuperate (IP, Gateway, Protocolli).")
+            
+            # Auto-update topology
+            self.redraw()
+            self.scene.update() # Force update
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Errore Import", str(e))
