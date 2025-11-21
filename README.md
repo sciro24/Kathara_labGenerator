@@ -16,7 +16,7 @@ The script asks the user to define network devices one by one. It supports:
 Once the devices are defined, the script automatically generates the folder structure, `.startup` files, `lab.conf`, and FRR daemon configurations. It also includes post-creation menus to refine the configuration (e.g., BGP policies, automatic neighbors).
 
 
-| CLI Demo 1 | CLI Demo 2 |
+| LabGenerator CLI Demo 1 | LabGeneratorCLI Demo 2 |
 | :---: | :---: |
 | <img src="images/labGenerator_cli.png" width="400"> | <img src="images/labGenerator_cli2.png" width="400"> |
 
@@ -35,7 +35,7 @@ Once the devices are defined, the script automatically generates the folder stru
 - **Full Integration**: Uses the `labGenerator.py` engine to ensure the same quality and correctness of the generated files.
 
 
-| GUI Demo 1 | GUI Demo 2 |
+| LabGenerator GUI Demo 1 | LabGenerator GUI Demo 2 |
 | :---: | :---: |
 | <img src="images/labGenerator_gui.png" width="400"> | <img src="images/labGenerator_gui2.png" width="400"> |
 
