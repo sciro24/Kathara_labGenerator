@@ -1,12 +1,40 @@
-# Lab Generator — GUI
+# Kathara Lab Generator
 
-Questa è una interfaccia grafica per il progetto `labGenerator.py` che permette di costruire un laboratorio di rete tramite una UI moderna e di generare i file di configurazione.
+This repository contains two main tools for automatically generating Kathara network labs: a command-line script (`labGenerator.py`) and a modern graphical interface (`labGenerator_GUI.py`).
 
-Prerequisiti
-- Python 3.8+
-- le dipendenze in `requirements.txt`
+## 1. LabGenerator (CLI)
 
-Installazione (macOS / Linux)
+`labGenerator.py` is the core of the project. It is an interactive Python script that guides the user step-by-step through the creation of an entire network topology.
+
+### How it works
+The script asks the user to define network devices one by one. It supports:
+- **FRR Routers**: Automatic configuration of daemons (zebra, bgpd, ospfd, ripd), interfaces, loopbacks, and routing protocols (BGP, OSPF, RIP, Static).
+- **Client Hosts**: Simple PCs with IP and default gateway configuration.
+- **Web Servers**: Apache servers with customizable index page.
+- **DNS Servers**: BIND9 servers configurable as Root, Master, or Caching/Forwarding.
+
+Once the devices are defined, the script automatically generates the folder structure, `.startup` files, `lab.conf`, and FRR daemon configurations. It also includes post-creation menus to refine the configuration (e.g., BGP policies, automatic neighbors).
+
+![Insert demo image of labGenerator.py running in terminal here]
+
+---
+
+## 2. LabGenerator GUI
+
+`labGenerator_GUI.py` is a modern graphical interface based on PySide6 that makes creating labs even more intuitive and visual.
+
+### Features
+- **Topology Visualization**: An interactive graph shows connections between devices (Routers, Hosts, LANs) in real-time.
+- **Guided Configuration**: Dedicated dialog windows for each device type allow entering parameters (IP, protocols, routes) without remembering the syntax.
+- **Complete Management**: Allows saving, loading, and modifying existing labs.
+- **Full Integration**: Uses the `labGenerator.py` engine to ensure the same quality and correctness of the generated files.
+
+![Insert demo image of labGenerator_GUI.py interface here]
+
+## Prerequisites and Installation
+
+1. Ensure you have Python 3.8+ installed.
+2. Create a virtual environment and install dependencies:
 
 ```bash
 python3 -m venv .venv
@@ -14,10 +42,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Esecuzione
+### Usage
 
+For the GUI:
 ```bash
-python3 labGenerator_gui.py
+python3 labGenerator_GUI.py
 ```
 
-
+For the CLI:
+```bash
+python3 labGenerator.py
+```
