@@ -10,6 +10,7 @@ import json
 import tempfile
 import shutil
 import re
+import subprocess
 from typing import Dict, List, Optional
 
 try:
@@ -860,8 +861,26 @@ class PostCreationDialog(QtWidgets.QDialog):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Lab Generator GUI')
+        self.setWindowTitle('Lab Generator GUI by sciro24 (GitHub)')
         self.resize(1600, 900)
+        
+        # Set window icon
+        # Try to load the icon from the icons directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(script_dir, 'icons', 'logo.ico')
+        
+        if os.path.exists(icon_path):
+            icon = QtGui.QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
+                # Also set application icon for macOS dock
+                QtWidgets.QApplication.instance().setWindowIcon(icon)
+                print(f"✓ Icon loaded successfully from: {icon_path}")
+            else:
+                print(f"⚠ Icon file found but failed to load: {icon_path}")
+        else:
+            print(f"⚠ Icon file not found at: {icon_path}")
+        
         self.lab = {'routers': {}, 'hosts': {}, 'www': {}, 'dns': {}}
         self.output_dir = ''
         self.setup_ui()
@@ -881,7 +900,7 @@ class MainWindow(QtWidgets.QMainWindow):
         l_layout.setContentsMargins(15, 20, 15, 20)
         l_layout.setSpacing(10)
         
-        l_layout.addWidget(QtWidgets.QLabel("<h3>Dispositivi</h3>"))
+        l_layout.addWidget(QtWidgets.QLabel("<h3>Aggiungi un Dispositivo</h3>"))
         
         self.dev_list = QtWidgets.QListWidget()
         self.dev_list.itemSelectionChanged.connect(self.on_selection)
@@ -917,8 +936,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_post.clicked.connect(self.post_menu)
         l_layout.addWidget(self.btn_post)
 
+        self.btn_start = HoverButton("▶️ Avvia Lab su Katharà")
+        self.btn_start.setStyleSheet(f"background-color: #d29922; color: white; padding: 8px;")
+        self.btn_start.clicked.connect(self.start_lab_kathara)
+        l_layout.addWidget(self.btn_start)
+
         self.btn_test = HoverButton("🧪 Test Rete")
-        self.btn_test.setStyleSheet(f"background-color: #2ea44f; color: white; padding: 8px;")
+        # Changed color to a distinct blue/purple to differentiate
+        self.btn_test.setStyleSheet(f"background-color: #8250df; color: white; padding: 8px;")
         self.btn_test.clicked.connect(self.test_network)
         l_layout.addWidget(self.btn_test)
         
@@ -1283,20 +1308,76 @@ class MainWindow(QtWidgets.QMainWindow):
         d = PostCreationDialog(self, self.output_dir, self.lab['routers'])
         d.exec()
 
+    def start_lab_kathara(self):
+        if not self.output_dir:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
+            return
+        
+        # Check kathara installed
+        if not shutil.which('kathara'):
+             QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
+             return
+
+        # Run kathara lstart asynchronously (non-blocking)
+        # This allows the GUI to remain responsive
+        try:
+            # Start the process in the background
+            subprocess.Popen(['kathara', 'lstart'], cwd=self.output_dir, 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            QtWidgets.QMessageBox.information(self, "Avvio Lab", 
+                                              "Avvio del laboratorio in corso...\n"
+                                              "Il processo continuerà in background.\n"
+                                              "Usa 'kathara list' nel terminale per verificare lo stato.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Errore", f"Errore durante l'avvio del lab:\n{e}")
+
     def test_network(self):
         if not self.output_dir:
             QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
             return
 
-        # Check if kathara is installed
+        # 1. Check Docker
+        if not shutil.which('docker'):
+             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non trovato. Assicurati che sia installato.")
+             return
+        
+        try:
+            subprocess.run(['docker', 'info'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        except subprocess.CalledProcessError:
+             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non sembra essere attivo.\nAvvia Docker Desktop e riprova.")
+             return
+
+        # 2. Check Kathara
         if not shutil.which('kathara'):
              QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
              return
 
+        # 3. Check if Lab is Running
+        # We use 'kathara list' and check if we see containers that likely belong to this lab.
+        # Kathara containers are usually named <lab_hash>_<device_name> or similar, 
+        # but 'kathara list' shows them.
+        # A simple heuristic: check if ANY container is running. 
+        # Better: check if we can ping at least one device from the host? No.
+        # Let's trust 'kathara list'.
+        try:
+            res = subprocess.run(['kathara', 'list'], capture_output=True, text=True)
+            # Output format:
+            # Node      Image      State
+            # r1        kathara/frr  running
+            # ...
+            # If output is empty or just headers, lab is not running.
+            lines = res.stdout.strip().splitlines()
+            if len(lines) < 2: # Just header or empty
+                 QtWidgets.QMessageBox.warning(self, "Lab non avviato", 
+                                               "Sembra che nessun laboratorio sia in esecuzione.\n"
+                                               "Avvia il lab con il pulsante 'Avvia Lab su Katharà' prima di testare la rete.")
+                 return
+        except Exception:
+            pass # Fallback to user confirmation if check fails
+
         reply = QtWidgets.QMessageBox.question(self, "Test Rete", 
                                                "Il test eseguirà un ping tra i dispositivi.\n"
-                                               "Assicurati che il laboratorio sia AVVIATO (kathara lstart).\n"
-                                               "Vuoi procedere?",
+                                               "Confermi di voler procedere?",
                                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         if reply == QtWidgets.QMessageBox.No:
             return
@@ -1308,29 +1389,46 @@ class MainWindow(QtWidgets.QMainWindow):
             # rdata['interfaces'] is list of dicts
             for iface in rdata.get('interfaces', []):
                 if iface.get('ip'):
-                    devices.append({'name': rname, 'ip': iface['ip'].split('/')[0], 'type': 'router'})
+                    ip_addr = iface['ip'].split('/')[0]
+                    devices.append({'name': rname, 'ip': ip_addr, 'type': 'router'})
+                    break  # Only need one IP per device for testing
         
         # Hosts
         for hname, hdata in self.lab['hosts'].items():
              # hdata['interfaces'] is list of dicts
             for iface in hdata.get('interfaces', []):
                 if iface.get('ip'):
-                    devices.append({'name': hname, 'ip': iface['ip'].split('/')[0], 'type': 'host'})
+                    ip_addr = iface['ip'].split('/')[0]
+                    devices.append({'name': hname, 'ip': ip_addr, 'type': 'host'})
+                    break  # Only need one IP per device for testing
 
         # WWW
         for wname, wdata in self.lab['www'].items():
-             # wdata['interfaces'] is list of dicts (or constructed on fly in import)
-             # In import we constructed it. Let's check structure consistency.
-             # In open_lab_folder we did: self.lab['www'][name] = {..., 'interfaces': [...]}
-             for iface in wdata.get('interfaces', []):
-                if iface.get('ip'):
-                    devices.append({'name': wname, 'ip': iface['ip'].split('/')[0], 'type': 'www'})
+             # Check if 'ip' field exists directly (old format)
+             if wdata.get('ip'):
+                 ip_addr = wdata['ip'].split('/')[0]
+                 devices.append({'name': wname, 'ip': ip_addr, 'type': 'www'})
+             # Or check interfaces list (new format)
+             elif wdata.get('interfaces'):
+                 for iface in wdata.get('interfaces', []):
+                     if iface.get('ip'):
+                         ip_addr = iface['ip'].split('/')[0]
+                         devices.append({'name': wname, 'ip': ip_addr, 'type': 'www'})
+                         break
 
         # DNS
         for dname, ddata in self.lab['dns'].items():
-             for iface in ddata.get('interfaces', []):
-                if iface.get('ip'):
-                    devices.append({'name': dname, 'ip': iface['ip'].split('/')[0], 'type': 'dns'})
+             # Check if 'ip' field exists directly (old format)
+             if ddata.get('ip'):
+                 ip_addr = ddata['ip'].split('/')[0]
+                 devices.append({'name': dname, 'ip': ip_addr, 'type': 'dns'})
+             # Or check interfaces list (new format)
+             elif ddata.get('interfaces'):
+                 for iface in ddata.get('interfaces', []):
+                     if iface.get('ip'):
+                         ip_addr = iface['ip'].split('/')[0]
+                         devices.append({'name': dname, 'ip': ip_addr, 'type': 'dns'})
+                         break
 
         if not devices:
             QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun dispositivo con IP trovato.")
@@ -1704,7 +1802,7 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Auto-update topology
             self.redraw()
-            self.scene.update() # Force update
+            # self.scene.update() # REMOVED: TopologyView is WebEngineView, no scene attribute
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Errore Import", str(e))
