@@ -864,26 +864,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('Lab Generator GUI by sciro24 (GitHub)')
         self.resize(1600, 900)
         
-        # Set window icon
-        # Try to load the icon from the icons directory
+        # Set window icon with rounded corners
         script_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(script_dir, 'icons', 'logo.ico')
         
         if os.path.exists(icon_path):
-            icon = QtGui.QIcon(icon_path)
-            if not icon.isNull():
+            icon = self.create_rounded_icon(icon_path)
+            if icon and not icon.isNull():
                 self.setWindowIcon(icon)
-                # Also set application icon for macOS dock
                 QtWidgets.QApplication.instance().setWindowIcon(icon)
-                print(f"✓ Icon loaded successfully from: {icon_path}")
+                print(f"✓ Icona stondata caricata con successo da: {icon_path}")
             else:
-                print(f"⚠ Icon file found but failed to load: {icon_path}")
+                print(f"⚠ File icona trovato ma caricamento fallito: {icon_path}")
         else:
-            print(f"⚠ Icon file not found at: {icon_path}")
+            print(f"⚠ File icona non trovato: {icon_path}")
         
         self.lab = {'routers': {}, 'hosts': {}, 'www': {}, 'dns': {}}
         self.output_dir = ''
         self.setup_ui()
+    
+    def create_rounded_icon(self, icon_path, size=256):
+        """Create a rounded (circular) icon from an image file."""
+        try:
+            # Load the original image
+            pixmap = QtGui.QPixmap(icon_path)
+            if pixmap.isNull():
+                return None
+            
+            # Scale to desired size while maintaining aspect ratio
+            pixmap = pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            # Create a new pixmap with transparency
+            rounded = QtGui.QPixmap(size, size)
+            rounded.fill(Qt.transparent)
+            
+            # Create a painter to draw on the new pixmap
+            painter = QtGui.QPainter(rounded)
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+            
+            # Create a circular path
+            path = QtGui.QPainterPath()
+            path.addEllipse(0, 0, size, size)
+            
+            # Clip to the circular path
+            painter.setClipPath(path)
+            
+            # Draw the original pixmap centered
+            x = (size - pixmap.width()) // 2
+            y = (size - pixmap.height()) // 2
+            painter.drawPixmap(x, y, pixmap)
+            
+            painter.end()
+            
+            return QtGui.QIcon(rounded)
+        except Exception as e:
+            print(f"⚠ Errore nella creazione dell'icona stondata: {e}")
+            return None
 
     def setup_ui(self):
         central = QtWidgets.QWidget()
