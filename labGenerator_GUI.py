@@ -22,6 +22,40 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 import networkx as nx
 from pyvis.network import Network
+from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QAbstractAnimation
+
+# --- CUSTOM WIDGETS ---
+class HoverButton(QtWidgets.QPushButton):
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.PointingHandCursor)
+        
+        # Setup shadow effect (fallback for missing ScaleEffect)
+        self.effect = QtWidgets.QGraphicsDropShadowEffect(self)
+        self.effect.setBlurRadius(0)
+        self.effect.setColor(QtGui.QColor(0, 0, 0, 100))
+        self.effect.setOffset(0, 0)
+        self.setGraphicsEffect(self.effect)
+        
+        # Animation
+        self.anim = QPropertyAnimation(self.effect, b"blurRadius")
+        self.anim.setDuration(200)
+        self.anim.setEasingCurve(QEasingCurve.OutQuad)
+        
+    def enterEvent(self, event):
+        self.anim.stop()
+        self.anim.setStartValue(self.effect.blurRadius())
+        self.anim.setEndValue(15.0)
+        self.anim.start()
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self.anim.stop()
+        self.anim.setStartValue(self.effect.blurRadius())
+        self.anim.setEndValue(0.0)
+        self.anim.start()
+        super().leaveEvent(event)
+
 
 # --- TEMA CHIARO (GitHub-like) ---
 LIGHT_BG = "#ffffff"
@@ -352,7 +386,7 @@ class TopologyView(QWebEngineView):
 # --- DIALOGHI DI CONFIGURAZIONE ---
 
 class RouterDialog(QtWidgets.QDialog):
-    def __init__(self1, parent=None, data=None):
+    def __init__(self, parent=None, data=None):
         super().__init__(parent)
         self.setWindowTitle('Configurazione Guidata Router')
         self.resize(800, 600)
@@ -410,7 +444,7 @@ class RouterDialog(QtWidgets.QDialog):
         self.iface_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.iface_table.setAlternatingRowColors(True)
         
-        btn_add_if = QtWidgets.QPushButton("+ Aggiungi Interfaccia")
+        btn_add_if = HoverButton("+ Aggiungi Interfaccia")
         btn_add_if.clicked.connect(self.add_iface)
         
         l2.addWidget(self.iface_table)
@@ -424,7 +458,7 @@ class RouterDialog(QtWidgets.QDialog):
         l3.addWidget(QtWidgets.QLabel("Indirizzi di Loopback (utili per iBGP e Router ID):"))
         
         self.loop_list = QtWidgets.QListWidget()
-        btn_add_loop = QtWidgets.QPushButton("+ Aggiungi Loopback")
+        btn_add_loop = HoverButton("+ Aggiungi Loopback")
         btn_add_loop.clicked.connect(self.add_loop)
         
         l3.addWidget(self.loop_list)
@@ -453,7 +487,7 @@ class RouterDialog(QtWidgets.QDialog):
         self.static_table.setHorizontalHeaderLabels(["Network (es. 10.0.0.0/24)", "Via (Gateway)", "Device (es. eth0)"])
         self.static_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         
-        btn_add_static = QtWidgets.QPushButton("+ Aggiungi Route")
+        btn_add_static = HoverButton("+ Aggiungi Route")
         btn_add_static.clicked.connect(self.add_static)
         
         l5.addWidget(self.static_table)
@@ -581,7 +615,7 @@ class HostDialog(QtWidgets.QDialog):
         self.iface_table.setHorizontalHeaderLabels(["Nome", "IP/CIDR", "Gateway Default", "LAN"])
         self.iface_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         
-        btn = QtWidgets.QPushButton("+ Aggiungi Interfaccia")
+        btn = HoverButton("+ Aggiungi Interfaccia")
         btn.clicked.connect(self.add_iface)
         
         layout.addWidget(self.iface_table)
@@ -785,7 +819,7 @@ class PostCreationDialog(QtWidgets.QDialog):
         self.list.setStyleSheet("QListWidget::item { padding: 10px; border-bottom: 1px solid #eee; }")
         layout.addWidget(self.list)
         
-        btn = QtWidgets.QPushButton("Esegui Azione")
+        btn = HoverButton("Esegui Azione")
         btn.clicked.connect(self.exec_action)
         layout.addWidget(btn)
 
@@ -861,7 +895,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         grid = QtWidgets.QGridLayout()
         for i, (label, slot, col) in enumerate(btns):
-            b = QtWidgets.QPushButton(f"+ {label}")
+            b = HoverButton(f"+ {label}")
             b.setStyleSheet(f"background-color: {col}; color: white; border: none; padding: 8px; font-weight: bold;")
             b.clicked.connect(slot)
             grid.addWidget(b, i//2, i%2)
@@ -870,12 +904,12 @@ class MainWindow(QtWidgets.QMainWindow):
         l_layout.addSpacing(20)
         l_layout.addWidget(QtWidgets.QLabel("<h3>Azioni Lab</h3>"))
         
-        self.btn_gen = QtWidgets.QPushButton("🚀 Genera Lab")
+        self.btn_gen = HoverButton("🚀 Genera Lab")
         self.btn_gen.setStyleSheet(f"background-color: {SUCCESS}; color: white; font-size: 14px; padding: 10px; font-weight: bold;")
         self.btn_gen.clicked.connect(self.gen_lab)
         l_layout.addWidget(self.btn_gen)
         
-        self.btn_post = QtWidgets.QPushButton("🛠️ Post-Creation Tools")
+        self.btn_post = HoverButton("🛠️ Post-Creation Tools")
         self.btn_post.setEnabled(False)
         self.btn_post.setStyleSheet(f"background-color: #6e7781; color: white; padding: 8px;")
         self.btn_post.clicked.connect(self.post_menu)
@@ -883,11 +917,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Merged Save/Load Buttons
         h_io = QtWidgets.QHBoxLayout()
-        b_save = QtWidgets.QPushButton("💾 Salva JSON")
+        b_save = HoverButton("💾 Salva JSON")
         b_save.setStyleSheet(f"background-color: {ACCENT}; color: white; font-weight: bold; padding: 8px;")
         b_save.clicked.connect(self.save_lab_dialog)
         
-        b_load = QtWidgets.QPushButton("📂 Carica JSON")
+        b_load = HoverButton("📂 Carica JSON")
         b_load.setStyleSheet(f"background-color: {ACCENT}; color: white; font-weight: bold; padding: 8px;")
         b_load.clicked.connect(self.load_lab_dialog)
         
@@ -896,7 +930,7 @@ class MainWindow(QtWidgets.QMainWindow):
         l_layout.addLayout(h_io)
 
         # Open Lab Folder Button
-        b_open_folder = QtWidgets.QPushButton("📂 Apri Cartella Lab")
+        b_open_folder = HoverButton("📂 Apri Cartella Lab")
         b_open_folder.setStyleSheet(f"background-color: #d29922; color: white; font-weight: bold; padding: 8px;")
         b_open_folder.clicked.connect(self.open_lab_folder)
         l_layout.addWidget(b_open_folder)
@@ -914,7 +948,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tb_layout.setContentsMargins(10, 0, 10, 0) # Reduced margins
         tb_layout.addWidget(QtWidgets.QLabel("<b>Topologia</b>"))
         tb_layout.addStretch()
-        btn_refresh = QtWidgets.QPushButton("Aggiorna")
+        btn_refresh = HoverButton("Aggiorna")
         btn_refresh.setStyleSheet(f"background-color: {ACCENT}; color: white; padding: 4px 8px;")
         btn_refresh.clicked.connect(self.redraw)
         tb_layout.addWidget(btn_refresh)
@@ -937,10 +971,10 @@ class MainWindow(QtWidgets.QMainWindow):
         r_layout.addWidget(self.details_area)
         
         btn_box = QtWidgets.QHBoxLayout()
-        self.btn_edit = QtWidgets.QPushButton("Modifica")
+        self.btn_edit = HoverButton("Modifica")
         self.btn_edit.setStyleSheet(f"background-color: {ACCENT}; color: white;")
         self.btn_edit.clicked.connect(self.edit_dev)
-        self.btn_rem = QtWidgets.QPushButton("Rimuovi")
+        self.btn_rem = HoverButton("Rimuovi")
         self.btn_rem.setStyleSheet(f"background-color: {ERROR}; color: white;")
         self.btn_rem.clicked.connect(self.rem_dev)
         
@@ -969,11 +1003,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Cerca item nella lista
         # Format list: [Type] Name
-        search_str = f" {node_id}" # match name at end
         
         for i in range(self.dev_list.count()):
             item = self.dev_list.item(i)
-            if item.text().endswith(search_str):
+            # Check if item text ends with "] node_id" to be exact
+            if item.text().endswith(f"] {node_id}"):
                 self.dev_list.setCurrentItem(item)
                 self.on_selection()
                 break
@@ -1055,7 +1089,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not items: return
         txt = items[0].text()
         dtype = txt.split(']')[0][1:]
-        name = txt.split('] ')[1]
+        name = txt.split('] ', 1)[1]
         
         if dtype == 'R':
             d = RouterDialog(self, self.lab['routers'][name])
@@ -1079,7 +1113,7 @@ class MainWindow(QtWidgets.QMainWindow):
         items = self.dev_list.selectedItems()
         if not items: return
         txt = items[0].text()
-        name = txt.split('] ')[1]
+        name = txt.split('] ', 1)[1]
         
         if QtWidgets.QMessageBox.question(self, "Conferma", f"Rimuovere {name}?") == QtWidgets.QMessageBox.Yes:
             for k in self.lab:
@@ -1279,6 +1313,40 @@ class MainWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Errore Import XML", str(e))
 
+    def local_parse_startup_files(self, folder, nodes):
+        import re
+        for name in nodes:
+            startup_file = os.path.join(folder, f"{name}.startup")
+            if os.path.exists(startup_file):
+                with open(startup_file, 'r') as f:
+                    content = f.read()
+                    
+                # Regex for "ip addr add <IP> ... dev eth<N>"
+                # Matches: ip addr add 192.168.1.1/24 dev eth0
+                matches = re.findall(r'ip\s+addr\s+add\s+([0-9\./]+).*?dev\s+eth(\d+)', content)
+                
+                # Also check for "ifconfig eth<N> <IP>"
+                ifconfig_matches = re.findall(r'ifconfig\s+eth(\d+)\s+([0-9\./]+)', content)
+                # Swap to (ip, idx) format and add to matches
+                matches.extend([(m[1], m[0]) for m in ifconfig_matches])
+                
+                # Check for default gateway
+                # ip route add default via <IP>
+                gw_match = re.search(r'ip\s+route\s+add\s+default\s+via\s+([0-9\.]+)', content)
+                if not gw_match:
+                    # route add default gw <IP>
+                    gw_match = re.search(r'route\s+add\s+default\s+gw\s+([0-9\.]+)', content)
+                
+                if matches:
+                    if 'ips' not in nodes[name]:
+                        nodes[name]['ips'] = {}
+                    for ip, idx in matches:
+                        nodes[name]['ips'][int(idx)] = ip
+                        
+                if gw_match:
+                    nodes[name]['gateway'] = gw_match.group(1)
+        return nodes
+
     def open_lab_folder(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleziona Cartella Lab Esistente")
         if not folder: return
@@ -1328,7 +1396,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
             # Advanced Import: Parse startup files for IPs
-            nodes = lg.parse_startup_files(folder, nodes)
+            # nodes = lg.parse_startup_files(folder, nodes)
+            nodes = self.local_parse_startup_files(folder, nodes)
 
             # Ricostruisci struttura lab
             self.lab_name = os.path.basename(folder)
@@ -1402,19 +1471,32 @@ class MainWindow(QtWidgets.QMainWindow):
                     }
                 else:
                     # Default Host
-                    ip = interfaces[0]['ip'] if interfaces else ''
-                    lan = interfaces[0]['lan'] if interfaces else ''
+                    # Reconstruct interfaces list for HostDialog
+                    host_ifaces = []
+                    for iface in interfaces:
+                        # iface is {'name': 'ethX', 'lan': '...', 'ip': '...'}
+                        # Add gateway if it's the first interface (simplification)
+                        gw = data.get('gateway', '') if iface['name'] == 'eth0' else ''
+                        host_ifaces.append({
+                            'name': iface['name'],
+                            'ip': iface['ip'],
+                            'lan': iface['lan'],
+                            'gateway': gw
+                        })
+                        
                     self.lab['hosts'][name] = {
+                        'name': name,
                         'image': data.get('image', ''),
-                        'ip': ip,
-                        'lan': lan,
-                        'gateway': ''
+                        'interfaces': host_ifaces
                     }
+            
+            self.output_dir = folder
+            self.btn_post.setEnabled(True)
             
             QtWidgets.QMessageBox.information(self, "Importazione Parziale", 
                                               "Lab importato da lab.conf.\n"
                                               "Alcune configurazioni (protocolli, zone DNS, ecc.) potrebbero mancare.\n"
-                                              "Gli IP sono stati recuperati dai file .startup (se presenti).")
+                                              "Gli IP e Gateway sono stati recuperati dai file .startup (se presenti).")
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Errore Import", str(e))
