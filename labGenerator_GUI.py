@@ -909,8 +909,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_gen.clicked.connect(self.gen_lab)
         l_layout.addWidget(self.btn_gen)
         
-        self.btn_post = HoverButton("🛠️ Post-Creation Tools")
-        self.btn_post.setEnabled(False)
+        self.btn_post = HoverButton("🛠️ Opzioni Lab")
+        # self.btn_post.setEnabled(False) # Enable generally
         self.btn_post.setStyleSheet(f"background-color: #6e7781; color: white; padding: 8px;")
         self.btn_post.clicked.connect(self.post_menu)
         l_layout.addWidget(self.btn_post)
@@ -1189,11 +1189,26 @@ class MainWindow(QtWidgets.QMainWindow):
     def gen_lab(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleziona Cartella Output")
         if not folder: return
+        
+        # Ask for Lab Name
+        lab_name, ok = QtWidgets.QInputDialog.getText(self, "Nome Lab", "Inserisci il nome del laboratorio:")
+        if not ok or not lab_name.strip():
+            return
+            
+        # Create subdirectory
+        target_dir = os.path.join(folder, lab_name.strip())
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Errore", f"Impossibile creare la cartella: {e}")
+            return
+
         if not lg:
             QtWidgets.QMessageBox.critical(self, "Errore", "Modulo labGenerator non disponibile.")
             return
             
-        self.output_dir = folder
+        self.output_dir = target_dir
+        folder = target_dir # Use the new subdirectory as the target folder
         try:
             # Routers
             for n, d in self.lab['routers'].items():
@@ -1244,7 +1259,19 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Errore Generazione", str(e))
 
     def post_menu(self):
-        if not self.output_dir: return
+        # Check if lab is generated/saved
+        if not self.output_dir or not os.path.exists(self.output_dir):
+            reply = QtWidgets.QMessageBox.question(self, "Lab non generato", 
+                                                   "Il laboratorio non è stato ancora generato o salvato su disco.\n"
+                                                   "Le opzioni richiedono i file di configurazione.\n"
+                                                   "Vuoi generare il lab ora?",
+                                                   QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.gen_lab()
+                if not self.output_dir: return # User cancelled generation
+            else:
+                return
+
         d = PostCreationDialog(self, self.output_dir, self.lab['routers'])
         d.exec()
 
@@ -1321,9 +1348,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 with open(startup_file, 'r') as f:
                     content = f.read()
                     
-                # Regex for "ip addr add <IP> ... dev eth<N>"
-                # Matches: ip addr add 192.168.1.1/24 dev eth0
-                matches = re.findall(r'ip\s+addr\s+add\s+([0-9\./]+).*?dev\s+eth(\d+)', content)
+                matches = []
+                # Check for "ip address add <IP> ... dev eth<N>" or "ip addr add ..." or "ip a add ..."
+                # Regex: ip\s+(?:addr|address|a)\s+add\s+([0-9\./]+).*?dev\s+eth(\d+)
+                ip_matches = re.findall(r'ip\s+(?:addr|address|a)\s+add\s+([0-9\./]+).*?dev\s+eth(\d+)', content)
+                matches.extend(ip_matches)
                 
                 # Also check for "ifconfig eth<N> <IP>"
                 ifconfig_matches = re.findall(r'ifconfig\s+eth(\d+)\s+([0-9\./]+)', content)
@@ -1477,9 +1506,22 @@ class MainWindow(QtWidgets.QMainWindow):
                         # iface is {'name': 'ethX', 'lan': '...', 'ip': '...'}
                         # Add gateway if it's the first interface (simplification)
                         gw = data.get('gateway', '') if iface['name'] == 'eth0' else ''
+                        
+                        # Try to get IP from parsed startup files
+                        # Check both int and str keys for robustness
+                        idx_str = iface['name'].replace('eth', '')
+                        try:
+                            idx = int(idx_str)
+                        except:
+                            idx = idx_str
+                        
+                        ip = ''
+                        if 'ips' in nodes[name]:
+                            ip = nodes[name]['ips'].get(idx, nodes[name]['ips'].get(str(idx), ''))
+
                         host_ifaces.append({
                             'name': iface['name'],
-                            'ip': iface['ip'],
+                            'ip': ip,
                             'lan': iface['lan'],
                             'gateway': gw
                         })
@@ -1491,7 +1533,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     }
             
             self.output_dir = folder
-            self.btn_post.setEnabled(True)
+            # self.btn_post.setEnabled(True) # Already enabled
             
             QtWidgets.QMessageBox.information(self, "Importazione Parziale", 
                                               "Lab importato da lab.conf.\n"
