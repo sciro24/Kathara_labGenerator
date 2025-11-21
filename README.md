@@ -1,6 +1,32 @@
-# Kathara Lab Generator
+<div align="center">
+  <img src="images/logo prog.png" alt="Kathara Lab Generator Logo" width="200"/>
+  
+  # Kathara Lab Generator
+  
+  **A comprehensive toolkit for automated network lab creation with Kathara**
+  
+  [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+  [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+</div>
 
-This repository contains two main tools for automatically generating Kathara network labs: a command-line script (`labGenerator.py`) and a modern graphical interface (`labGenerator_GUI.py`).
+---
+
+## Overview
+
+This repository provides two powerful tools designed to streamline the creation of complex network topologies for [Kathara](https://www.kathara.org/), a container-based network emulation platform. Whether you prefer working in the terminal or through a modern graphical interface, these tools automate the tedious process of configuring routers, hosts, servers, and network protocols.
+
+### What's Included
+
+1. **`labGenerator.py`** - A feature-rich command-line interface (CLI) for step-by-step lab creation
+2. **`labGenerator_GUI.py`** - A modern, intuitive graphical user interface (GUI) with real-time topology visualization
+
+Both tools generate production-ready Kathara labs with properly configured:
+- **FRR Routers** with BGP, OSPF, RIP, and static routing
+- **Client Hosts** with network interfaces and default gateways
+- **Web Servers** running Apache with customizable content
+- **DNS Servers** using BIND9 (Root, Master, or Caching/Forwarding)
+
+---
 
 ## 1. LabGenerator (CLI)
 
