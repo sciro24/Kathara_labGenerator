@@ -17,8 +17,8 @@ Once the devices are defined, the script automatically generates the folder stru
 
 
 <p align="center">
-  <img src="images/labGenerator_cli.png" alt="CLI Demo 1" width="45%" style="display:inline-block; margin-right:10px; border:1px solid #555;" />
-  <img src="images/labGenerator_cli2.png" alt="CLI Demo 2" width="45%" style="display:inline-block; border:1px solid #555;" />
+  <img src="images/labGenerator_cli.png" alt="CLI Demo 1" width="45%" style="display:inline-block; margin-right:10px; border:2px solid #000;" />
+  <img src="images/labGenerator_cli2.png" alt="CLI Demo 2" width="45%" style="display:inline-block; border:2px solid #000;" />
 </p>
 
 
@@ -37,8 +37,8 @@ Once the devices are defined, the script automatically generates the folder stru
 
 
 <p align="center">
-  <img src="images/labGenerator_gui.png" alt="GUI Demo 1" width="45%" style="display:inline-block; margin-right:10px; border:1px solid #555;" />
-  <img src="images/labGenerator_gui2.png" alt="GUI Demo 2" width="45%" style="display:inline-block; border:1px solid #555;" />
+  <img src="images/labGenerator_gui.png" alt="GUI Demo 1" width="45%" style="display:inline-block; margin-right:10px; border:2px solid #000;" />
+  <img src="images/labGenerator_gui2.png" alt="GUI Demo 2" width="45%" style="display:inline-block; border:2px solid #000;" />
 </p>
 
 
