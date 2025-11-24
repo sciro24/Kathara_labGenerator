@@ -800,6 +800,7 @@ class PostCreationDialog(QtWidgets.QDialog):
         self.setup_ui()
 
     def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("<h2>Strumenti Post-Creazione</h2>"))
         layout.addWidget(QtWidgets.QLabel("Seleziona un'azione da eseguire sul lab generato:"))
         
@@ -971,11 +972,29 @@ class PostCreationDialog(QtWidgets.QDialog):
 
     def open_file_external(self, filepath):
         if sys.platform.startswith('darwin'):
-            subprocess.call(('open', filepath))
+            # Try VS Code first
+            if shutil.which('code'):
+                subprocess.call(('code', filepath))
+            else:
+                # Fallback to 'open'
+                # If 'open' fails (no association), try TextEdit explicitly
+                try:
+                    ret = subprocess.call(('open', filepath))
+                    if ret != 0:
+                        subprocess.call(('open', '-a', 'TextEdit', filepath))
+                except Exception:
+                    subprocess.call(('open', '-a', 'TextEdit', filepath))
         elif os.name == 'nt':
-            os.startfile(filepath)
+            # Try VS Code first
+            if shutil.which('code'):
+                subprocess.call(['code', filepath], shell=True)
+            else:
+                os.startfile(filepath)
         elif os.name == 'posix':
-            subprocess.call(('xdg-open', filepath))
+            if shutil.which('code'):
+                subprocess.call(('code', filepath))
+            else:
+                subprocess.call(('xdg-open', filepath))
 
 # --- MAIN WINDOW ---
 
@@ -1098,6 +1117,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_start.setStyleSheet(f"background-color: #d29922; color: white; padding: 8px;")
         self.btn_start.clicked.connect(self.start_lab_kathara)
         l_layout.addWidget(self.btn_start)
+
+        self.btn_stop = HoverButton("⏹️ Chiudi Lab su Katharà")
+        self.btn_stop.setStyleSheet(f"background-color: {ERROR}; color: white; padding: 8px;")
+        self.btn_stop.clicked.connect(self.stop_lab_kathara)
+        l_layout.addWidget(self.btn_stop)
 
         self.btn_test = HoverButton("🧪 Test Rete")
         # Changed color to a distinct blue/purple to differentiate
@@ -1326,8 +1350,9 @@ class MainWindow(QtWidgets.QMainWindow):
         dtype = txt.split(']')[0][1:] # R, H, W, D
         name = txt.split('] ', 1)[1]
         
+        # Check if output_dir is set (either generated or loaded)
         if not self.output_dir or not os.path.exists(self.output_dir):
-            QtWidgets.QMessageBox.warning(self, "Attenzione", "Il laboratorio non è stato ancora generato.")
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
             return
             
         # Determine file path
@@ -1345,15 +1370,33 @@ class MainWindow(QtWidgets.QMainWindow):
         if fpath and os.path.exists(fpath):
             self.open_file_external(fpath)
         else:
-            QtWidgets.QMessageBox.warning(self, "Errore", f"File di configurazione non trovato per {name}.")
+            QtWidgets.QMessageBox.warning(self, "Errore", f"File di configurazione non trovato per {name}:\n{fpath}")
 
     def open_file_external(self, filepath):
         if sys.platform.startswith('darwin'):
-            subprocess.call(('open', filepath))
+            # Try VS Code first
+            if shutil.which('code'):
+                subprocess.call(('code', filepath))
+            else:
+                # Fallback to 'open'
+                # If 'open' fails (no association), try TextEdit explicitly
+                try:
+                    ret = subprocess.call(('open', filepath))
+                    if ret != 0:
+                        subprocess.call(('open', '-a', 'TextEdit', filepath))
+                except Exception:
+                    subprocess.call(('open', '-a', 'TextEdit', filepath))
         elif os.name == 'nt':
-            os.startfile(filepath)
+            # Try VS Code first
+            if shutil.which('code'):
+                subprocess.call(['code', filepath], shell=True)
+            else:
+                os.startfile(filepath)
         elif os.name == 'posix':
-            subprocess.call(('xdg-open', filepath))
+            if shutil.which('code'):
+                subprocess.call(('code', filepath))
+            else:
+                subprocess.call(('xdg-open', filepath))
 
     def build_graph(self):
         G = nx.Graph()
@@ -1543,6 +1586,23 @@ class MainWindow(QtWidgets.QMainWindow):
                                               "Usa 'kathara list' nel terminale per verificare lo stato.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Errore", f"Errore durante l'avvio del lab:\n{e}")
+
+    def stop_lab_kathara(self):
+        if not self.output_dir:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
+            return
+            
+        if not shutil.which('kathara'):
+             QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.")
+             return
+
+        try:
+            subprocess.Popen(['kathara', 'lclean'], cwd=self.output_dir, 
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            QtWidgets.QMessageBox.information(self, "Chiusura Lab", 
+                                              "Chiusura del laboratorio in corso (lclean)...")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Errore", f"Errore durante la chiusura del lab:\n{e}")
 
     def test_network(self):
         if not self.output_dir:
@@ -1912,15 +1972,21 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Errore Import", str(e))
 
 def main():
-    # Fix per crash QWebEngineView su macOS
-    # Flags for stability
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-software-rasterizer --single-process"
+    # Fix per crash QWebEngineView su macOS e warning Skia/V8
+    # Flags for stability and suppressing specific backend errors
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-software-rasterizer --single-process --disable-features=UseSkiaGraphite"
     
     # Optional: Set OpenGL attribute
     QtWidgets.QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion") # Base style
+    
+    # Set default font to avoid "Segoe UI" warning on Mac
+    font = QtGui.QFont("Helvetica")
+    font.setStyleHint(QtGui.QFont.SansSerif)
+    app.setFont(font)
+    
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
