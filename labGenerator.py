@@ -2078,14 +2078,14 @@ def aggiungi_customer_provider_wizard(base_path, routers):
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         
         print("Inserisci le TUE reti da annunciare al provider (separate da virgola):")
-        print("⚠️  ATTENZIONE: NON inserire le reti dei tuoi peer-to-peer!")
+        print("⚠️  ATTENZIONE: NON inserire le reti con e dei tuoi peer-to-peer!")
         my_nets = input("> ").strip()
         if my_nets:
             for net in my_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
         
         print("Inserisci le reti dei tuoi CLIENTI da annunciare al provider (separate da virgola, o invio per nessuna):")
-        print("⚠️  ATTENZIONE: NON inserire le reti dei tuoi peer-to-peer!")
+        print("⚠️  ATTENZIONE: NON inserire le reti con e dei tuoi peer-to-peer!")
         cust_nets = input("> ").strip()
         if cust_nets:
             for net in cust_nets.replace(',', ' ').split():
@@ -2105,14 +2105,14 @@ def aggiungi_customer_provider_wizard(base_path, routers):
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         
         print("Inserisci le TUE reti da annunciare al peer (separate da virgola):")
-        print("⚠️  ATTENZIONE: NON inserire le reti del tuo provider!")
+        print("⚠️  ATTENZIONE: NON inserire le reti con e del tuo provider!")
         my_nets = input("> ").strip()
         if my_nets:
             for net in my_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
         
         print("Inserisci le reti dei tuoi CLIENTI da annunciare al peer (separate da virgola, o invio per nessuna):")
-        print("⚠️  ATTENZIONE: NON inserire le reti del tuo provider!")
+        print("⚠️  ATTENZIONE: NON inserire le reti con e del tuo provider!")
         cust_nets = input("> ").strip()
         if cust_nets:
             for net in cust_nets.replace(',', ' ').split():
