@@ -800,7 +800,6 @@ class PostCreationDialog(QtWidgets.QDialog):
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("<h2>Strumenti Post-Creazione</h2>"))
         layout.addWidget(QtWidgets.QLabel("Seleziona un'azione da eseguire sul lab generato:"))
         
@@ -810,8 +809,7 @@ class PostCreationDialog(QtWidgets.QDialog):
             ("🔄 Auto-generate BGP Neighbors", "Crea automaticamente i neighbor BGP per router nella stessa LAN."),
             ("🔗 iBGP Loopback Neighbors", "Configura neighbor iBGP usando le interfacce di loopback."),
             ("🛡️ BGP Policies & Filters", "Menu avanzato per Prefix-List, Route-Map, Access-List."),
-            ("💰 Assegna Costo OSPF", "Imposta manualmente il costo OSPF per specifiche interfacce."),
-            ("⚡ Genera Ping One-Liner", "Crea uno script per testare la connettività tra tutti i nodi.")
+            ("💰 Assegna Costo OSPF", "Imposta manualmente il costo OSPF per specifiche interfacce.")
         ]
         
         for title, desc in items:
@@ -832,29 +830,152 @@ class PostCreationDialog(QtWidgets.QDialog):
         
         idx = self.list.row(item)
         try:
-            if idx == 0: lg.modifica_router_menu(self.base, self.routers)
+            if idx == 0: self.gui_modifica_frr()
             elif idx == 1: 
                 lg.auto_generate_bgp_neighbors(self.base, self.routers)
                 QtWidgets.QMessageBox.information(self, 'Successo', 'BGP neighbors generati.')
             elif idx == 2: 
                 lg.add_ibgp_loopback_neighbors(self.base, self.routers)
                 QtWidgets.QMessageBox.information(self, 'Successo', 'iBGP loopback neighbors configurati.')
-            elif idx == 3: lg.policies_menu(self.base, self.routers)
-            elif idx == 4: lg.assegna_costo_interfaccia(self.base, self.routers)
-            elif idx == 5:
-                eps = lg.collect_lab_ips(self.base, self.routers)
-                cmd = lg.generate_ping_oneliner(eps)
-                d = QtWidgets.QDialog(self)
-                d.setWindowTitle('Ping Test Command')
-                d.resize(700, 200)
-                l = QtWidgets.QVBoxLayout(d)
-                t = QtWidgets.QTextEdit()
-                t.setPlainText(cmd)
-                t.setReadOnly(True)
-                l.addWidget(t)
-                d.exec()
+            elif idx == 3: self.gui_policies_menu()
+            elif idx == 4: self.gui_assegna_costo()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Errore', str(e))
+
+    def gui_modifica_frr(self):
+        routers = sorted(list(self.routers.keys()))
+        if not routers:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun router disponibile.")
+            return
+            
+        rname, ok = QtWidgets.QInputDialog.getItem(self, "Seleziona Router", "Router:", routers, 0, False)
+        if ok and rname:
+            fpath = os.path.join(self.base, rname, "etc", "frr", "frr.conf")
+            if os.path.exists(fpath):
+                self.open_file_external(fpath)
+            else:
+                QtWidgets.QMessageBox.warning(self, "Errore", f"File non trovato: {fpath}")
+
+    def gui_assegna_costo(self):
+        routers = [r for r, d in self.routers.items() if 'ospf' in d.get('protocols', [])]
+        if not routers:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun router con OSPF abilitato.")
+            return
+            
+        rname, ok = QtWidgets.QInputDialog.getItem(self, "Seleziona Router", "Router:", sorted(routers), 0, False)
+        if not ok or not rname: return
+        
+        ifaces = [i['name'] for i in self.routers[rname].get('interfaces', [])]
+        if not ifaces:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessuna interfaccia disponibile.")
+            return
+            
+        iface, ok = QtWidgets.QInputDialog.getItem(self, "Seleziona Interfaccia", "Interfaccia:", ifaces, 0, False)
+        if not ok or not iface: return
+        
+        cost, ok = QtWidgets.QInputDialog.getInt(self, "Costo OSPF", "Inserisci costo (>=1):", 10, 1, 65535)
+        if not ok: return
+        
+        stanza = f"interface {iface}\n    ospf cost {cost}\n"
+        if lg.append_frr_stanza(self.base, rname, stanza):
+            QtWidgets.QMessageBox.information(self, "Successo", f"Costo OSPF impostato su {rname} {iface}.")
+
+    def gui_policies_menu(self):
+        opts = [
+            "Prefix-List (Deny + Permit Any)",
+            "Route-Map (Set Local-Pref)",
+            "Route-Map (Set Metric/MED)",
+            "Access-List (Deny + Permit Any)"
+        ]
+        typ, ok = QtWidgets.QInputDialog.getItem(self, "Tipo Policy", "Seleziona Policy:", opts, 0, False)
+        if not ok: return
+        
+        # Select Router
+        routers = [r for r, d in self.routers.items() if 'bgp' in d.get('protocols', [])]
+        if not routers:
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun router con BGP.")
+            return
+        rname, ok = QtWidgets.QInputDialog.getItem(self, "Seleziona Router", "Router:", sorted(routers), 0, False)
+        if not ok: return
+        
+        # Neighbor IP
+        neigh_ip, ok = QtWidgets.QInputDialog.getText(self, "Neighbor", "IP Neighbor (es. 10.0.0.2):")
+        if not ok or not neigh_ip: return
+        
+        # Ensure neighbor exists
+        fpath = os.path.join(self.base, rname, 'etc', 'frr', 'frr.conf')
+        
+        # Re-implement ensure_neighbor logic to avoid CLI input
+        try:
+            with open(fpath, 'r') as f: content = f.read()
+            neigh_clean = neigh_ip.split('/')[0]
+            if f"neighbor {neigh_clean} remote-as" not in content:
+                asn, ok = QtWidgets.QInputDialog.getText(self, "Nuovo Neighbor", f"Inserisci ASN per {neigh_clean}:")
+                if ok and asn:
+                    lines = [f"neighbor {neigh_clean} remote-as {asn}"]
+                    lg.insert_lines_into_protocol_block(fpath, proto='bgp', asn=None, lines=lines)
+                else:
+                    return
+        except Exception:
+            pass
+
+        if "Prefix-List" in typ:
+            direction, ok = QtWidgets.QInputDialog.getItem(self, "Direzione", "Direzione:", ["in", "out"], 0, False)
+            if not ok: return
+            net, ok = QtWidgets.QInputDialog.getText(self, "Rete", "Rete da bloccare (es. 10.0.0.0/24):")
+            if not ok: return
+            
+            pl_name = f"PL_{rname}_{neigh_ip.replace('.','_')}_{direction}"
+            stanza = [
+                f"ip prefix-list {pl_name} deny {net}",
+                f"ip prefix-list {pl_name} permit any"
+            ]
+            self._append_and_link(fpath, stanza, neigh_ip, f"prefix-list {pl_name} {direction}")
+            
+        elif "Local-Pref" in typ:
+            lp, ok = QtWidgets.QInputDialog.getInt(self, "Local Pref", "Valore Local Preference:", 100, 0, 999999)
+            if not ok: return
+            rm_name = f"PREF_IN_{neigh_ip.replace('.','_')}"
+            stanza = [f"route-map {rm_name} permit 10", f"    set local-preference {lp}", ""]
+            self._append_and_link(fpath, stanza, neigh_ip, f"route-map {rm_name} in")
+            
+        elif "Metric" in typ:
+            med, ok = QtWidgets.QInputDialog.getInt(self, "MED", "Valore Metric (MED):", 0, 0, 999999)
+            if not ok: return
+            rm_name = f"LOCALMED_OUT_{neigh_ip.replace('.','_')}"
+            stanza = [f"route-map {rm_name} permit 10", f"    set metric {med}", ""]
+            self._append_and_link(fpath, stanza, neigh_ip, f"route-map {rm_name} out")
+            
+        elif "Access-List" in typ:
+            net, ok = QtWidgets.QInputDialog.getText(self, "Rete", "Rete da bloccare (es. 10.0.0.0/24):")
+            if not ok: return
+            # Simple ID generation
+            acl_id = 10
+            rm_name = f"FILTER_IN_{neigh_ip.replace('.','_')}"
+            stanza = [
+                f"access-list {acl_id} deny {net}",
+                f"access-list {acl_id} permit any",
+                "",
+                f"route-map {rm_name} permit 10",
+                f" match ip address {acl_id}",
+                ""
+            ]
+            self._append_and_link(fpath, stanza, neigh_ip, f"route-map {rm_name} in")
+
+        QtWidgets.QMessageBox.information(self, "Successo", "Policy applicata.")
+
+    def _append_and_link(self, fpath, stanza_lines, neigh_ip, neighbor_cmd):
+        with open(fpath, 'a') as f:
+            f.write('\n' + '\n'.join(stanza_lines) + '\n')
+        lg.insert_lines_into_protocol_block(fpath, proto='bgp', asn=None, lines=[f"neighbor {neigh_ip} {neighbor_cmd}"])
+
+    def open_file_external(self, filepath):
+        if sys.platform.startswith('darwin'):
+            subprocess.call(('open', filepath))
+        elif os.name == 'nt':
+            os.startfile(filepath)
+        elif os.name == 'posix':
+            subprocess.call(('xdg-open', filepath))
 
 # --- MAIN WINDOW ---
 
@@ -1052,6 +1173,11 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_box.addWidget(self.btn_rem)
         r_layout.addLayout(btn_box)
         
+        self.btn_open_editor = HoverButton("📝 Apri nell'Editor")
+        self.btn_open_editor.setStyleSheet(f"background-color: #6e7781; color: white; margin-top: 5px;")
+        self.btn_open_editor.clicked.connect(self.open_in_editor)
+        r_layout.addWidget(self.btn_open_editor)
+        
         # Add panels to main
         main_layout.addWidget(left_panel)
         main_layout.addWidget(center_panel, 1) # Center expands
@@ -1189,6 +1315,45 @@ class MainWindow(QtWidgets.QMainWindow):
             for k in self.lab:
                 if name in self.lab[k]: del self.lab[k][name]
             self.redraw()
+
+    def open_in_editor(self):
+        items = self.dev_list.selectedItems()
+        if not items: 
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Seleziona un dispositivo.")
+            return
+            
+        txt = items[0].text()
+        dtype = txt.split(']')[0][1:] # R, H, W, D
+        name = txt.split('] ', 1)[1]
+        
+        if not self.output_dir or not os.path.exists(self.output_dir):
+            QtWidgets.QMessageBox.warning(self, "Attenzione", "Il laboratorio non è stato ancora generato.")
+            return
+            
+        # Determine file path
+        fpath = None
+        if dtype == 'R':
+            # Try frr.conf first, then startup
+            frr = os.path.join(self.output_dir, name, "etc", "frr", "frr.conf")
+            if os.path.exists(frr):
+                fpath = frr
+            else:
+                fpath = os.path.join(self.output_dir, f"{name}.startup")
+        else:
+            fpath = os.path.join(self.output_dir, f"{name}.startup")
+            
+        if fpath and os.path.exists(fpath):
+            self.open_file_external(fpath)
+        else:
+            QtWidgets.QMessageBox.warning(self, "Errore", f"File di configurazione non trovato per {name}.")
+
+    def open_file_external(self, filepath):
+        if sys.platform.startswith('darwin'):
+            subprocess.call(('open', filepath))
+        elif os.name == 'nt':
+            os.startfile(filepath)
+        elif os.name == 'posix':
+            subprocess.call(('xdg-open', filepath))
 
     def build_graph(self):
         G = nx.Graph()
@@ -1350,6 +1515,17 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
             return
         
+        # Check Docker
+        if not shutil.which('docker'):
+             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non trovato. Assicurati che sia installato.")
+             return
+        
+        try:
+            subprocess.run(['docker', 'info'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        except subprocess.CalledProcessError:
+             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non sembra essere attivo.\nAvvia Docker Desktop e riprova.")
+             return
+        
         # Check kathara installed
         if not shutil.which('kathara'):
              QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
@@ -1389,144 +1565,35 @@ class MainWindow(QtWidgets.QMainWindow):
              QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
              return
 
-        # 3. Check if Lab is Running
-        # We use 'kathara list' and check if we see containers that likely belong to this lab.
-        # Kathara containers are usually named <lab_hash>_<device_name> or similar, 
-        # but 'kathara list' shows them.
-        # A simple heuristic: check if ANY container is running. 
-        # Better: check if we can ping at least one device from the host? No.
-        # Let's trust 'kathara list'.
+        # Generate Ping One-Liner
         try:
-            res = subprocess.run(['kathara', 'list'], capture_output=True, text=True)
-            # Output format:
-            # Node      Image      State
-            # r1        kathara/frr  running
-            # ...
-            # If output is empty or just headers, lab is not running.
-            lines = res.stdout.strip().splitlines()
-            if len(lines) < 2: # Just header or empty
-                 QtWidgets.QMessageBox.warning(self, "Lab non avviato", 
-                                               "Sembra che nessun laboratorio sia in esecuzione.\n"
-                                               "Avvia il lab con il pulsante 'Avvia Lab su Katharà' prima di testare la rete.")
-                 return
-        except Exception:
-            pass # Fallback to user confirmation if check fails
-
-        reply = QtWidgets.QMessageBox.question(self, "Test Rete", 
-                                               "Il test eseguirà un ping tra i dispositivi.\n"
-                                               "Confermi di voler procedere?",
-                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-        if reply == QtWidgets.QMessageBox.No:
-            return
-
-        # Collect all IPs
-        devices = []
-        # Routers
-        for rname, rdata in self.lab['routers'].items():
-            # rdata['interfaces'] is list of dicts
-            for iface in rdata.get('interfaces', []):
-                if iface.get('ip'):
-                    ip_addr = iface['ip'].split('/')[0]
-                    devices.append({'name': rname, 'ip': ip_addr, 'type': 'router'})
-                    break  # Only need one IP per device for testing
-        
-        # Hosts
-        for hname, hdata in self.lab['hosts'].items():
-             # hdata['interfaces'] is list of dicts
-            for iface in hdata.get('interfaces', []):
-                if iface.get('ip'):
-                    ip_addr = iface['ip'].split('/')[0]
-                    devices.append({'name': hname, 'ip': ip_addr, 'type': 'host'})
-                    break  # Only need one IP per device for testing
-
-        # WWW
-        for wname, wdata in self.lab['www'].items():
-             # Check if 'ip' field exists directly (old format)
-             if wdata.get('ip'):
-                 ip_addr = wdata['ip'].split('/')[0]
-                 devices.append({'name': wname, 'ip': ip_addr, 'type': 'www'})
-             # Or check interfaces list (new format)
-             elif wdata.get('interfaces'):
-                 for iface in wdata.get('interfaces', []):
-                     if iface.get('ip'):
-                         ip_addr = iface['ip'].split('/')[0]
-                         devices.append({'name': wname, 'ip': ip_addr, 'type': 'www'})
-                         break
-
-        # DNS
-        for dname, ddata in self.lab['dns'].items():
-             # Check if 'ip' field exists directly (old format)
-             if ddata.get('ip'):
-                 ip_addr = ddata['ip'].split('/')[0]
-                 devices.append({'name': dname, 'ip': ip_addr, 'type': 'dns'})
-             # Or check interfaces list (new format)
-             elif ddata.get('interfaces'):
-                 for iface in ddata.get('interfaces', []):
-                     if iface.get('ip'):
-                         ip_addr = iface['ip'].split('/')[0]
-                         devices.append({'name': dname, 'ip': ip_addr, 'type': 'dns'})
-                         break
-
-        if not devices:
-            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun dispositivo con IP trovato.")
-            return
-
-        # Progress Dialog
-        progress = QtWidgets.QProgressDialog("Esecuzione Test Rete...", "Annulla", 0, len(devices) * len(devices), self)
-        progress.setWindowModality(QtCore.Qt.WindowModal)
-        progress.show()
-
-        results = []
-        count = 0
-        
-        # We will ping FROM every device TO every other device IP
-        # Optimization: maybe just ping from Hosts to others? 
-        # User said "incrociato tra tutti".
-        
-        for src in devices:
-            for dst in devices:
-                if progress.wasCanceled():
-                    break
+            if not lg:
+                QtWidgets.QMessageBox.critical(self, "Errore", "Modulo labGenerator non disponibile.")
+                return
                 
-                if src['name'] == dst['name']:
-                    count += 1
-                    progress.setValue(count)
-                    continue
-                
-                # Exec ping
-                # kathara exec <node> ping -c 1 -W 1 <dst_ip>
-                cmd = ['kathara', 'exec', src['name'], 'ping', '-c', '1', '-W', '1', dst['ip']]
-                try:
-                    proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    success = (proc.returncode == 0)
-                except Exception:
-                    success = False
-                
-                status = "✅" if success else "❌"
-                results.append(f"{status} {src['name']} -> {dst['name']} ({dst['ip']})")
-                
-                count += 1
-                progress.setValue(count)
+            eps = lg.collect_lab_ips(self.output_dir, self.lab['routers'])
+            cmd = lg.generate_ping_oneliner(eps)
             
-            if progress.wasCanceled():
-                break
-
-        progress.close()
-        
-        # Show Report
-        report_text = "\n".join(results)
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Report Test Rete")
-        dialog.resize(600, 400)
-        layout = QtWidgets.QVBoxLayout(dialog)
-        text_edit = QtWidgets.QTextEdit()
-        text_edit.setPlainText(report_text)
-        text_edit.setReadOnly(True)
-        layout.addWidget(text_edit)
-        btn_close = QtWidgets.QPushButton("Chiudi")
-        btn_close.clicked.connect(dialog.accept)
-        layout.addWidget(btn_close)
-        dialog.exec()
+            d = QtWidgets.QDialog(self)
+            d.setWindowTitle('Test Rete - Ping One-Liner')
+            d.resize(800, 400)
+            l = QtWidgets.QVBoxLayout(d)
+            
+            l.addWidget(QtWidgets.QLabel("<h2>Ping One-Liner</h2>"))
+            l.addWidget(QtWidgets.QLabel("Copia e incolla questo comando nel terminale di ogni dispositivo per testare la connettività:"))
+            
+            t = QtWidgets.QTextEdit()
+            t.setPlainText(cmd)
+            t.setReadOnly(True)
+            l.addWidget(t)
+            
+            btn_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+            btn_box.rejected.connect(d.reject)
+            l.addWidget(btn_box)
+            
+            d.exec()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Errore", f"Errore generazione test rete: {e}")
 
     def save_lab_dialog(self):
         # Chiedi formato
@@ -1846,7 +1913,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main():
     # Fix per crash QWebEngineView su macOS
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+    # Flags for stability
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-software-rasterizer --single-process"
+    
+    # Optional: Set OpenGL attribute
+    QtWidgets.QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion") # Base style
