@@ -1427,11 +1427,11 @@ def policies_menu(base_path, routers):
     """Sotto-menu per applicare policies BGP semplici ai router del lab."""
     while True:
         items = [
-            'Aggiungi prefix-list (deny <rete> e permit any) e collega al neighbor (in/out)',
-            'Aggiungi route-map prefIn (set local-preference) e collega al neighbor (in)',
-            'Aggiungi route-map localMedOut (set metric) e collega al neighbor (out)',
-            'Aggiungi access-list (deny rete, permit any) e collega al neighbor (in)',
-            'Aggiungi configurazione Customer-Provider'
+            'Aggiungi prefix-list (deny <rete> e permit any)',
+            'Aggiungi route-map prefIn (set local-preference)',
+            'Aggiungi route-map localMedOut (set metric)',
+            'Aggiungi access-list (deny rete, permit any)',
+            'Aggiungi configurazione Customer-Provider-Peer'
         ]
         print_menu('=== Policies BGP (scegli) ===', items, extra_options=[('0', 'Torna indietro')])
         c = input('Seleziona (numero): ').strip()
