@@ -2069,9 +2069,7 @@ def aggiungi_customer_provider_wizard(base_path, routers):
     pl_out = f"{rel_type}_{neigh_name}_out"
 
     lines_to_append = []
-    lines_to_append.append(f"!")
-    lines_to_append.append(f"! Policy per relazione {rel_type.upper()} con {neigh_name}")
-    lines_to_append.append(f"!")
+
 
     if rel_type == "provider":
         # Provider (Il vicino è il mio provider):
