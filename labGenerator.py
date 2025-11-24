@@ -2074,49 +2074,48 @@ def aggiungi_customer_provider_wizard(base_path, routers):
     lines_to_append.append(f"!")
 
     if rel_type == "provider":
-        # Provider:
-        # IN: permit any
-        # OUT: deny <RETI_PEER>, permit any
+        # Provider (Il vicino è il mio provider):
+        # IN: permit any (accetto tutto dal provider)
+        # OUT: permit solo le mie reti e quelle dei miei clienti
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         
-        print("Inserisci le reti dei PEER da bloccare verso il provider (separate da virgola, o invio per nessuna):")
-        peers_nets = input("> ").strip()
-        if peers_nets:
-            for net in peers_nets.replace(',', ' ').split():
-                lines_to_append.append(f"ip prefix-list {pl_out} deny {net}")
+        print("Inserisci le TUE reti da annunciare al provider (separate da virgola):")
+        my_nets = input("> ").strip()
+        if my_nets:
+            for net in my_nets.replace(',', ' ').split():
+                lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
         
-        lines_to_append.append(f"ip prefix-list {pl_out} permit any")
+        print("Inserisci le reti dei tuoi CLIENTI da annunciare al provider (separate da virgola, o invio per nessuna):")
+        cust_nets = input("> ").strip()
+        if cust_nets:
+            for net in cust_nets.replace(',', ' ').split():
+                lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
 
     elif rel_type == "customer":
-        # Customer:
-        # IN: permit any
-        # OUT: permit any (Full Table)
+        # Customer (Il vicino è il mio cliente):
+        # IN: permit any (accetto tutto dal cliente)
+        # OUT: permit any (invio la full table al cliente)
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         lines_to_append.append(f"ip prefix-list {pl_out} permit any")
 
     elif rel_type == "peer":
-        # Peer:
-        # IN: permit <RETE_DEL_PEER>
-        # OUT: permit <MIE_RETI>, permit <RETI_MIEI_CLIENTI>
-        print(f"Inserisci le reti del PEER {neigh_name} da accettare (separate da virgola):")
-        peer_nets = input("> ").strip()
-        if peer_nets:
-            for net in peer_nets.replace(',', ' ').split():
-                lines_to_append.append(f"ip prefix-list {pl_in} permit {net}")
-        else:
-             # Se vuoto, deny all implicito (nessuna regola permit)
-             pass
-
+        # Peer (Siamo alla pari):
+        # IN: permit any (accetto tutto dal peer)
+        # OUT: permit solo le mie reti e quelle dei miei clienti (NON le reti del provider)
+        lines_to_append.append(f"ip prefix-list {pl_in} permit any")
+        
         print("Inserisci le TUE reti da annunciare al peer (separate da virgola):")
+        print("⚠️  ATTENZIONE: NON inserire le reti del tuo provider!")
         my_nets = input("> ").strip()
         if my_nets:
-             for net in my_nets.replace(',', ' ').split():
+            for net in my_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
-
-        print("Inserisci le reti dei tuoi CLIENTI da annunciare al peer (separate da virgola):")
+        
+        print("Inserisci le reti dei tuoi CLIENTI da annunciare al peer (separate da virgola, o invio per nessuna):")
+        print("⚠️  ATTENZIONE: NON inserire le reti del tuo provider!")
         cust_nets = input("> ").strip()
         if cust_nets:
-             for net in cust_nets.replace(',', ' ').split():
+            for net in cust_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
 
     # Scrivi le prefix-list nel file (append global)
