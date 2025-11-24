@@ -73,7 +73,7 @@ ERROR = "#cf222e"
 
 STYLESHEET = f"""
 QMainWindow {{background-color: {LIGHT_BG};}}
-QWidget {{color: {TEXT_PRIMARY}; font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px;}}
+QWidget {{color: {TEXT_PRIMARY}; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px;}}
 
 /* Bottoni */
 QPushButton {{
@@ -179,6 +179,19 @@ QScrollBar::handle:vertical {{
 """
 
 # --- WIDGET TOPOLOGIA INTERATTIVA ---
+class BackendHandler(QtCore.QObject):
+    """Gestisce la comunicazione tra JavaScript e Python."""
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+
+    @QtCore.Slot(str)
+    def node_clicked(self, node_id):
+        # Trova la finestra principale e chiama on_node_click
+        mw = self.view.window()
+        if hasattr(mw, 'on_node_click'):
+            mw.on_node_click(node_id)
+
 class TopologyView(QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -188,8 +201,9 @@ class TopologyView(QWebEngineView):
         
         # Setup WebChannel for communication
         self.channel = QWebChannel()
+        self.handler = BackendHandler(self)
+        self.channel.registerObject("backend", self.handler)
         self.page().setWebChannel(self.channel)
-        self.channel.registerObject("backend", self)
 
         # Pagina di default
         self.setHtml(f"""
@@ -199,12 +213,7 @@ class TopologyView(QWebEngineView):
         </body></html>
         """)
 
-    @QtCore.Slot(str)
-    def node_clicked(self, node_id):
-        # Trova la finestra principale e chiama on_node_click
-        mw = self.window()
-        if hasattr(mw, 'on_node_click'):
-            mw.on_node_click(node_id)
+        # Pagina di default
 
     def set_graph(self, G):
         if not G.nodes:
@@ -853,7 +862,7 @@ class PostCreationDialog(QtWidgets.QDialog):
         if ok and rname:
             fpath = os.path.join(self.base, rname, "etc", "frr", "frr.conf")
             if os.path.exists(fpath):
-                self.open_file_external(fpath)
+                self.open_file_external(fpath, self.base)
             else:
                 QtWidgets.QMessageBox.warning(self, "Errore", f"File non trovato: {fpath}")
 
@@ -970,29 +979,53 @@ class PostCreationDialog(QtWidgets.QDialog):
             f.write('\n' + '\n'.join(stanza_lines) + '\n')
         lg.insert_lines_into_protocol_block(fpath, proto='bgp', asn=None, lines=[f"neighbor {neigh_ip} {neighbor_cmd}"])
 
-    def open_file_external(self, filepath):
+    def open_file_external(self, filepath, folder_path=None):
         if sys.platform.startswith('darwin'):
-            # Try VS Code first
+            # 1. Try 'code' in PATH
             if shutil.which('code'):
-                subprocess.call(('code', filepath))
-            else:
-                # Fallback to 'open'
-                # If 'open' fails (no association), try TextEdit explicitly
-                try:
-                    ret = subprocess.call(('open', filepath))
-                    if ret != 0:
-                        subprocess.call(('open', '-a', 'TextEdit', filepath))
-                except Exception:
-                    subprocess.call(('open', '-a', 'TextEdit', filepath))
+                if folder_path:
+                    subprocess.call(('code', folder_path, filepath))
+                else:
+                    subprocess.call(('code', filepath))
+                return
+            
+            # 2. Try common VS Code path
+            vscode_path = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+            if os.path.exists(vscode_path):
+                if folder_path:
+                    subprocess.call((vscode_path, folder_path, filepath))
+                else:
+                    subprocess.call((vscode_path, filepath))
+                return
+
+            # 3. Try open -a "Visual Studio Code"
+            try:
+                # 'open -a' doesn't easily support opening folder AND file in specific way, 
+                # but we can try opening the file. VS Code usually handles it well.
+                # To open folder + file via 'open', we might need to open folder first?
+                # Let's stick to opening the file, which is safer with 'open'.
+                ret = subprocess.call(('open', '-a', 'Visual Studio Code', filepath))
+                if ret == 0: return
+            except: pass
+
+            # 4. Fallback to TextEdit
+            subprocess.call(('open', '-a', 'TextEdit', filepath))
+
         elif os.name == 'nt':
             # Try VS Code first
             if shutil.which('code'):
-                subprocess.call(['code', filepath], shell=True)
+                if folder_path:
+                    subprocess.call(['code', folder_path, filepath], shell=True)
+                else:
+                    subprocess.call(['code', filepath], shell=True)
             else:
                 os.startfile(filepath)
         elif os.name == 'posix':
             if shutil.which('code'):
-                subprocess.call(('code', filepath))
+                if folder_path:
+                    subprocess.call(('code', folder_path, filepath))
+                else:
+                    subprocess.call(('code', filepath))
             else:
                 subprocess.call(('xdg-open', filepath))
 
@@ -1102,7 +1135,7 @@ class MainWindow(QtWidgets.QMainWindow):
         l_layout.addSpacing(20)
         l_layout.addWidget(QtWidgets.QLabel("<h3>Azioni Lab</h3>"))
         
-        self.btn_gen = HoverButton("🚀 Genera Lab")
+        self.btn_gen = HoverButton("🚀 Salva Lab")
         self.btn_gen.setStyleSheet(f"background-color: {SUCCESS}; color: white; font-size: 14px; padding: 10px; font-weight: bold;")
         self.btn_gen.clicked.connect(self.gen_lab)
         l_layout.addWidget(self.btn_gen)
@@ -1379,33 +1412,57 @@ class MainWindow(QtWidgets.QMainWindow):
             fpath = os.path.join(self.output_dir, f"{name}.startup")
             
         if fpath and os.path.exists(fpath):
-            self.open_file_external(fpath)
+            self.open_file_external(fpath, self.output_dir)
         else:
             QtWidgets.QMessageBox.warning(self, "Errore", f"File di configurazione non trovato per {name}:\n{fpath}")
 
-    def open_file_external(self, filepath):
+    def open_file_external(self, filepath, folder_path=None):
         if sys.platform.startswith('darwin'):
-            # Try VS Code first
+            # 1. Try 'code' in PATH
             if shutil.which('code'):
-                subprocess.call(('code', filepath))
-            else:
-                # Fallback to 'open'
-                # If 'open' fails (no association), try TextEdit explicitly
-                try:
-                    ret = subprocess.call(('open', filepath))
-                    if ret != 0:
-                        subprocess.call(('open', '-a', 'TextEdit', filepath))
-                except Exception:
-                    subprocess.call(('open', '-a', 'TextEdit', filepath))
+                if folder_path:
+                    subprocess.call(('code', folder_path, filepath))
+                else:
+                    subprocess.call(('code', filepath))
+                return
+            
+            # 2. Try common VS Code path
+            vscode_path = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+            if os.path.exists(vscode_path):
+                if folder_path:
+                    subprocess.call((vscode_path, folder_path, filepath))
+                else:
+                    subprocess.call((vscode_path, filepath))
+                return
+
+            # 3. Try open -a "Visual Studio Code"
+            try:
+                # 'open -a' doesn't easily support opening folder AND file in specific way, 
+                # but we can try opening the file. VS Code usually handles it well.
+                # To open folder + file via 'open', we might need to open folder first?
+                # Let's stick to opening the file, which is safer with 'open'.
+                ret = subprocess.call(('open', '-a', 'Visual Studio Code', filepath))
+                if ret == 0: return
+            except: pass
+
+            # 4. Fallback to TextEdit
+            subprocess.call(('open', '-a', 'TextEdit', filepath))
+
         elif os.name == 'nt':
             # Try VS Code first
             if shutil.which('code'):
-                subprocess.call(['code', filepath], shell=True)
+                if folder_path:
+                    subprocess.call(['code', folder_path, filepath], shell=True)
+                else:
+                    subprocess.call(['code', filepath], shell=True)
             else:
                 os.startfile(filepath)
         elif os.name == 'posix':
             if shutil.which('code'):
-                subprocess.call(('code', filepath))
+                if folder_path:
+                    subprocess.call(('code', folder_path, filepath))
+                else:
+                    subprocess.call(('code', filepath))
             else:
                 subprocess.call(('xdg-open', filepath))
 
@@ -1995,6 +2052,9 @@ def main():
     # Flags for stability and suppressing specific backend errors
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-software-rasterizer --single-process --disable-features=UseSkiaGraphite"
     
+    # Suppress Qt warnings
+    os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false;qt.webengine.context.warning=false"
+
     # Optional: Set OpenGL attribute
     QtWidgets.QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     
