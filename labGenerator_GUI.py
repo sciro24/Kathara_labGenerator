@@ -1197,10 +1197,19 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_box.addWidget(self.btn_rem)
         r_layout.addLayout(btn_box)
         
-        self.btn_open_editor = HoverButton("📝 Apri nell'Editor")
-        self.btn_open_editor.setStyleSheet(f"background-color: #6e7781; color: white; margin-top: 5px;")
-        self.btn_open_editor.clicked.connect(self.open_in_editor)
-        r_layout.addWidget(self.btn_open_editor)
+        self.btn_edit_startup = HoverButton("📝 Startup")
+        self.btn_edit_startup.setStyleSheet(f"background-color: #6e7781; color: white; margin-top: 5px;")
+        self.btn_edit_startup.clicked.connect(lambda: self.open_in_editor('startup'))
+        
+        self.btn_edit_frr = HoverButton("📝 FRR")
+        self.btn_edit_frr.setStyleSheet(f"background-color: #6e7781; color: white; margin-top: 5px;")
+        self.btn_edit_frr.clicked.connect(lambda: self.open_in_editor('frr'))
+        self.btn_edit_frr.setVisible(False) # Hidden by default
+        
+        editor_layout = QtWidgets.QHBoxLayout()
+        editor_layout.addWidget(self.btn_edit_startup)
+        editor_layout.addWidget(self.btn_edit_frr)
+        r_layout.addLayout(editor_layout)
         
         # Add panels to main
         main_layout.addWidget(left_panel)
@@ -1303,6 +1312,9 @@ class MainWindow(QtWidgets.QMainWindow):
             info += f"<p><b>Root Type:</b> {d.get('root_type')}</p>"
             
         self.details_area.setHtml(info)
+        
+        # Update Editor Buttons visibility
+        self.btn_edit_frr.setVisible(dtype == 'R')
 
     def edit_dev(self):
         items = self.dev_list.selectedItems()
@@ -1340,7 +1352,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if name in self.lab[k]: del self.lab[k][name]
             self.redraw()
 
-    def open_in_editor(self):
+    def open_in_editor(self, file_type='startup'):
         items = self.dev_list.selectedItems()
         if not items: 
             QtWidgets.QMessageBox.warning(self, "Attenzione", "Seleziona un dispositivo.")
@@ -1357,14 +1369,13 @@ class MainWindow(QtWidgets.QMainWindow):
             
         # Determine file path
         fpath = None
-        if dtype == 'R':
-            # Try frr.conf first, then startup
-            frr = os.path.join(self.output_dir, name, "etc", "frr", "frr.conf")
-            if os.path.exists(frr):
-                fpath = frr
+        if file_type == 'frr':
+            if dtype == 'R':
+                fpath = os.path.join(self.output_dir, name, "etc", "frr", "frr.conf")
             else:
-                fpath = os.path.join(self.output_dir, f"{name}.startup")
-        else:
+                QtWidgets.QMessageBox.warning(self, "Errore", "Solo i router hanno configurazione FRR.")
+                return
+        else: # startup
             fpath = os.path.join(self.output_dir, f"{name}.startup")
             
         if fpath and os.path.exists(fpath):
@@ -1597,10 +1608,12 @@ class MainWindow(QtWidgets.QMainWindow):
              return
 
         try:
-            subprocess.Popen(['kathara', 'lclean'], cwd=self.output_dir, 
+            # Use 'kathara wipe -f' to clean everything and force close terminals
+            subprocess.Popen(['kathara', 'wipe', '-f'], cwd=self.output_dir, 
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             QtWidgets.QMessageBox.information(self, "Chiusura Lab", 
-                                              "Chiusura del laboratorio in corso (lclean)...")
+                                              "Esecuzione di 'kathara wipe -f' in corso...\n"
+                                              "Tutti i dispositivi verranno arrestati e i terminali chiusi.")
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Errore", f"Errore durante la chiusura del lab:\n{e}")
 
@@ -1647,9 +1660,15 @@ class MainWindow(QtWidgets.QMainWindow):
             t.setReadOnly(True)
             l.addWidget(t)
             
-            btn_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
-            btn_box.rejected.connect(d.reject)
-            l.addWidget(btn_box)
+            btn_box = QtWidgets.QHBoxLayout()
+            btn_copy = QtWidgets.QPushButton("Copia")
+            btn_copy.clicked.connect(lambda: QtWidgets.QApplication.clipboard().setText(cmd))
+            btn_close = QtWidgets.QPushButton("Chiudi")
+            btn_close.clicked.connect(d.reject)
+            
+            btn_box.addWidget(btn_copy)
+            btn_box.addWidget(btn_close)
+            l.addLayout(btn_box)
             
             d.exec()
         except Exception as e:
