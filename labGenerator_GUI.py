@@ -1123,7 +1123,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_stop.clicked.connect(self.stop_lab_kathara)
         l_layout.addWidget(self.btn_stop)
 
-        self.btn_test = HoverButton("🧪 Test Rete")
+        self.btn_test = HoverButton("🧪 Pingatore")
         # Changed color to a distinct blue/purple to differentiate
         self.btn_test.setStyleSheet(f"background-color: #8250df; color: white; padding: 8px;")
         self.btn_test.clicked.connect(self.test_network)
