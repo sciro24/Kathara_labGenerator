@@ -1812,33 +1812,17 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Errore", f"Errore durante la chiusura del lab:\n{e}")
 
     def test_network(self):
-        if not self.output_dir:
-            QtWidgets.QMessageBox.warning(self, "Attenzione", "Nessun laboratorio caricato o generato.")
-            return
-
-        # 1. Check Docker
-        if not shutil.which('docker'):
-             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non trovato. Assicurati che sia installato.")
-             return
-        
-        try:
-            subprocess.run(['docker', 'info'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        except subprocess.CalledProcessError:
-             QtWidgets.QMessageBox.critical(self, "Errore", "Docker non sembra essere attivo.\nAvvia Docker Desktop e riprova.")
-             return
-
-        # 2. Check Kathara
-        if not shutil.which('kathara'):
-             QtWidgets.QMessageBox.critical(self, "Errore", "Il comando 'kathara' non è stato trovato.\nAssicurati che Kathara sia installato e nel PATH.")
-             return
-
         # Generate Ping One-Liner
         try:
             if not lg:
                 QtWidgets.QMessageBox.critical(self, "Errore", "Modulo labGenerator non disponibile.")
                 return
                 
-            eps = lg.collect_lab_ips(self.output_dir, self.lab['routers'])
+            # Use output_dir if available, otherwise pass a dummy path or None
+            # lg.collect_lab_ips handles exceptions if path is invalid
+            lab_path = self.output_dir if self.output_dir else ""
+            
+            eps = lg.collect_lab_ips(lab_path, self.lab['routers'])
             cmd = lg.generate_ping_oneliner(eps)
             
             d = QtWidgets.QDialog(self)
