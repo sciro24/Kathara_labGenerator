@@ -289,7 +289,8 @@ class TopologyView(QWebEngineView):
             net = Network(height="100%", width="100%", bgcolor=LIGHT_BG, font_color=TEXT_PRIMARY)
 
         # Opzioni fisiche
-        net.barnes_hut(gravity=-2000, central_gravity=0.3, spring_length=150, spring_strength=0.05, damping=0.09)
+        # Increased repulsion and spring length to prevent cloud overlap
+        net.barnes_hut(gravity=-20000, central_gravity=0.3, spring_length=400, spring_strength=0.04, damping=0.09)
         
         # Helper per icone custom
         import base64
@@ -334,7 +335,6 @@ class TopologyView(QWebEngineView):
                     size = 30
                 else:
                     shape = 'icon'
-                    icon = {'face': "'FontAwesome'", 'code': '\uf0e8', 'size': 50, 'color': '#0969da'}
                     icon = {'face': "'FontAwesome'", 'code': '\uf0e8', 'size': 50, 'color': '#0969da'}
                 
                 asn_str = f"ASN: {data.get('asn', '-')}"
@@ -392,14 +392,30 @@ class TopologyView(QWebEngineView):
                 net.add_node(node, label=node, title=title, shape=shape, image=image, icon=icon, size=size)
                 
             elif dtype == 'lan':
-                # Box shape with label inside
-                shape = 'box'
-                color = {'background': '#ff9900', 'border': '#cc7a00'}
-                size = None # size ignored for box?
-                title = f"LAN: {data.get('label', node)}"
-                # Font bianco per contrasto su arancione
-                net.add_node(node, label=data.get('label', node), title=title, 
-                             shape=shape, color=color, font={'size': 14, 'color': 'white', 'face': 'sans-serif', 'bold': True})
+                # Check if it's a stub LAN (Internet) - Degree 1
+                # Note: G is passed to set_graph, so we can check degree
+                is_cloud = False
+                if G.degree(node) == 1:
+                    custom_img = get_icon_data('Cloud')
+                    if custom_img:
+                        shape = 'image'
+                        image = custom_img
+                        size = 20
+                        is_cloud = True
+                        title = f"Internet/Cloud: {node}"
+                
+                if not is_cloud:
+                    # Box shape with label inside
+                    shape = 'box'
+                    color = {'background': '#ff9900', 'border': '#cc7a00'}
+                    size = None # size ignore
+                    title = f"LAN: {data.get('label', node)}"
+                    # Font bianco per contrasto su arancione
+                    net.add_node(node, label=data.get('label', node), title=title, 
+                                 shape=shape, color=color, font={'size': 14, 'color': 'white', 'face': 'sans-serif', 'bold': True})
+                else:
+                    # Add Cloud Node
+                    net.add_node(node, label=data.get('label', node), title=title, shape=shape, image=image, size=size)
             
             # Fallback for others (if not handled above, use default shape/color)
             else:
@@ -416,7 +432,9 @@ class TopologyView(QWebEngineView):
             if iface: full_label += f"{iface}\n"
             if ip: full_label += ip
             
-            net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, font={'align': 'middle', 'size': 10})
+            # Improved Edge Styling: No background, long cables
+            net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
+                         font={'align': 'middle', 'size': 12, 'strokeWidth': 0})
 
         # Salva su file temporaneo
         if self.temp_file:
@@ -436,7 +454,10 @@ class TopologyView(QWebEngineView):
             "zoomView": true
           },
           "physics": {
-            "stabilization": false
+            "stabilization": false,
+            "barnesHut": {
+                "avoidOverlap": 1
+            }
           }
         }
         """)
@@ -1200,7 +1221,7 @@ class PostCreationDialog(QtWidgets.QDialog):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Lab Generator GUI by sciro24 (GitHub)')
+        self.setWindowTitle('Kathara labGenerator - sciro24 (GitHub)')
         self.resize(1600, 900)
         
         # Set window icon with rounded corners
@@ -1647,22 +1668,43 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # --- UNION-FIND FOR AS GROUPING ---
         parent = {}
+        # Track the effective ASN for each set root
+        root_asn = {} 
+
         def find(i):
             if parent[i] == i: return i
             parent[i] = find(parent[i])
             return parent[i]
-        def union(i, j):
+
+        def safe_union(i, j):
             root_i = find(i)
             root_j = find(j)
             if root_i != root_j:
+                asn_i = root_asn.get(root_i)
+                asn_j = root_asn.get(root_j)
+                
+                # Check Compatibility:
+                # If both have an ASN and they are different -> DO NOT MERGE
+                if asn_i and asn_j and asn_i != asn_j:
+                    return # Incompatible
+                
+                # Merge
                 parent[root_i] = root_j
+                # Update ASN of the new root (root_j)
+                # If root_j didn't have an ASN, take it from root_i
+                if not asn_j and asn_i:
+                    root_asn[root_j] = asn_i
 
         # Initialize UF for all routers
         router_names = list(self.lab['routers'].keys())
         for n in router_names:
             parent[n] = n
+            # Initialize root_asn with the router's own ASN
+            d = self.lab['routers'][n]
+            asn = d.get('asn', '')
+            if asn: root_asn[n] = asn
             
-        # 1. Union by ASN
+        # 1. Union by ASN (Explicit)
         # Map ASN -> [routers]
         asn_map = {}
         for n, d in self.lab['routers'].items():
@@ -1672,11 +1714,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 asn_map[asn].append(n)
         for asn, routers in asn_map.items():
             for i in range(len(routers)-1):
-                union(routers[i], routers[i+1])
+                safe_union(routers[i], routers[i+1])
 
         # 2. Union by OSPF Area
         # Map Area -> [routers]
-        # Only if 'ospf' is in protocols
         ospf_map = {}
         for n, d in self.lab['routers'].items():
             if 'ospf' in d.get('protocols', []):
@@ -1686,7 +1727,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     ospf_map[area].append(n)
         for area, routers in ospf_map.items():
             for i in range(len(routers)-1):
-                union(routers[i], routers[i+1])
+                safe_union(routers[i], routers[i+1])
 
         # 3. Union by RIP (Shared LAN)
         # Map LAN -> [routers with RIP]
@@ -1700,7 +1741,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         rip_lan_map[lan].append(n)
         for lan, routers in rip_lan_map.items():
             for i in range(len(routers)-1):
-                union(routers[i], routers[i+1])
+                safe_union(routers[i], routers[i+1])
 
         # Resolve Groups and Determine Labels
         # Group ID -> { 'asn': set(), 'ospf': set(), 'rip': bool }
@@ -1712,8 +1753,10 @@ class MainWindow(QtWidgets.QMainWindow):
             
             d = self.lab['routers'][n]
             if d.get('asn'): groups_info[root]['asn'].add(d.get('asn'))
-            if 'ospf' in d.get('protocols', []) and d.get('ospf_area'):
-                groups_info[root]['ospf'].add(d.get('ospf_area'))
+            if 'ospf' in d.get('protocols', []): # Check for OSPF protocol presence
+                area = d.get('ospf_area', '')
+                if area:
+                    groups_info[root]['ospf'].add(area)
             if 'rip' in d.get('protocols', []):
                 groups_info[root]['rip'] = True
 
@@ -1726,7 +1769,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Determine Label Priority: ASN > OSPF > RIP
             label = None
             if info['asn']:
-                # Join multiple ASNs if present (rare/weird but possible)
+                # Join multiple ASNs if present (should be only one now due to safe_union)
                 label = "/".join(sorted(info['asn']))
             elif info['ospf']:
                 label = "Area " + "/".join(sorted(info['ospf']))
@@ -1792,6 +1835,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 if not G.has_node(lan_id):
                     G.add_node(lan_id, device_type='lan', label=lan)
                 G.add_edge(name, lan_id, label=ip)
+                
+        # Calculate and add degree for LAN nodes
+        for node in list(G.nodes()): # Iterate over a copy to avoid issues if nodes are removed
+            if G.nodes[node].get('device_type') == 'lan':
+                G.nodes[node]['degree'] = G.degree(node)
                 
         return G
 
