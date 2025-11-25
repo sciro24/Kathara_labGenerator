@@ -1879,6 +1879,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 ip_matches = re.findall(r'ip\s+(?:addr|address|a)\s+add\s+([0-9\./]+).*?dev\s+eth(\d+)', content)
                 matches.extend(ip_matches)
                 
+                # Check for Loopbacks: ip addr add <IP> dev lo
+                loop_matches = re.findall(r'ip\s+(?:addr|address|a)\s+add\s+([0-9\./]+).*?dev\s+lo', content)
+                
                 # Also check for "ifconfig eth<N> <IP>"
                 ifconfig_matches = re.findall(r'ifconfig\s+eth(\d+)\s+([0-9\./]+)', content)
                 # Swap to (ip, idx) format and add to matches
@@ -1899,6 +1902,9 @@ class MainWindow(QtWidgets.QMainWindow):
                         
                 if gw_match:
                     nodes[name]['gateway'] = gw_match.group(1)
+                    
+                if loop_matches:
+                    nodes[name]['loopbacks'] = loop_matches
         return nodes
 
     def open_lab_folder(self):
@@ -2054,7 +2060,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         'interfaces': router_ifaces,
                         'protocols': protocols,
                         'asn': asn,
-                        'ospf_area': ospf_area
+                        'interfaces': router_ifaces,
+                        'protocols': protocols,
+                        'asn': asn,
+                        'ospf_area': ospf_area,
+                        'loopbacks': data.get('loopbacks', [])
                     }
                 elif is_www:
                     # WWW usually 1 interface
