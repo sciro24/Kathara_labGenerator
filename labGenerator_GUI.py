@@ -247,6 +247,12 @@ class BackendHandler(QtCore.QObject):
         if hasattr(mw, 'on_node_click'):
             mw.on_node_click(node_id)
 
+    @QtCore.Slot(str)
+    def receive_screenshot(self, data_url):
+        mw = self.view.window()
+        if hasattr(mw, 'save_screenshot_data'):
+            mw.save_screenshot_data(data_url)
+
 class TopologyView(QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -289,8 +295,8 @@ class TopologyView(QWebEngineView):
             net = Network(height="100%", width="100%", bgcolor=LIGHT_BG, font_color=TEXT_PRIMARY)
 
         # Opzioni fisiche
-        # Increased repulsion and spring length to prevent cloud overlap
-        net.barnes_hut(gravity=-20000, central_gravity=0.3, spring_length=400, spring_strength=0.04, damping=0.09)
+        # Extreme repulsion and spring length to maximize separation
+        net.barnes_hut(gravity=-50000, central_gravity=0.1, spring_length=500, spring_strength=0.01, damping=0.09)
         
         # Helper per icone custom
         import base64
@@ -566,6 +572,18 @@ class TopologyView(QWebEngineView):
                     ctx.fillText("AS " + asn, cx, cy - radius + 30);
                 }
             });
+            // JS function to capture screenshot
+            function captureScreenshot() {
+                // Fit all nodes
+                network.fit({animation: false});
+                
+                // Wait a moment for render (optional but safer)
+                setTimeout(function() {
+                    var canvas = document.getElementsByTagName("canvas")[0];
+                    var dataURL = canvas.toDataURL("image/png");
+                    backend.receive_screenshot(dataURL);
+                }, 200);
+            }
             </script>
             </body>
             """
@@ -1384,6 +1402,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.topo_header_label = QtWidgets.QLabel("<b>Topologia</b>") # Changed to self.topo_header_label
         tb_layout.addWidget(self.topo_header_label)
         tb_layout.addStretch()
+        
+        btn_screenshot = HoverButton("Screenshot")
+        btn_screenshot.setStyleSheet(f"background-color: {ACCENT}; color: white; padding: 4px 8px;")
+        btn_screenshot.clicked.connect(self.capture_screenshot)
+        tb_layout.addWidget(btn_screenshot)
+        
         btn_refresh = HoverButton("Aggiorna")
         btn_refresh.setStyleSheet(f"background-color: {ACCENT}; color: white; padding: 4px 8px;")
         btn_refresh.clicked.connect(self.redraw)
@@ -1856,6 +1880,32 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update Graph
         G = self.build_graph()
         self.topo_view.set_graph(G)
+
+    def capture_screenshot(self):
+        """Trigger screenshot capture via JS"""
+        # Call JS function to capture canvas
+        self.topo_view.page().runJavaScript("captureScreenshot();")
+
+    def save_screenshot_data(self, data_url):
+        """Save the base64 image data to a file"""
+        try:
+            import base64
+            # Remove header "data:image/png;base64,"
+            if ',' in data_url:
+                header, encoded = data_url.split(',', 1)
+            else:
+                encoded = data_url
+            
+            data = base64.b64decode(encoded)
+            
+            # Open Save Dialog
+            fname, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Salva Screenshot", "topologia.png", "Images (*.png)")
+            if fname:
+                with open(fname, "wb") as f:
+                    f.write(data)
+                QtWidgets.QMessageBox.information(self, "Successo", f"Screenshot salvato in {fname}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Errore Screenshot", str(e))
 
     def gen_lab(self):
         # Smart Save Logic
