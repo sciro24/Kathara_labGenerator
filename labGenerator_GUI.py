@@ -1061,7 +1061,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if icon and not icon.isNull():
                 self.setWindowIcon(icon)
                 QtWidgets.QApplication.instance().setWindowIcon(icon)
-                print(f"✓ Icona stondata caricata con successo da: {icon_path}")
             else:
                 print(f"⚠ File icona trovato ma caricamento fallito: {icon_path}")
         else:
