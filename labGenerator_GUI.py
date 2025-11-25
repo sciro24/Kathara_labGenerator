@@ -1614,17 +1614,47 @@ class MainWindow(QtWidgets.QMainWindow):
                                  dnssec_validation=d.get('dnssec_validation'))
                                  
             # lab.conf
+            # lab.conf
             lines = []
+            
+            # Routers
             for n, d in self.lab['routers'].items():
+                # Interfaces
                 for i, iface in enumerate(d.get('interfaces', [])):
-                    if iface.get('lan'): lines.append(f"{n}[{i}]={iface['lan']}")
+                    if iface.get('lan'): 
+                        lines.append(f"{n}[{i}]={iface['lan']}")
+                
+                # Image (logic from labGenerator.py)
+                protocols = d.get('protocols', [])
+                # If dynamic protocols are used, use kathara/frr
+                if any(p in protocols for p in ("bgp", "ospf", "rip")):
+                    lines.append(f'{n}[image]="kathara/frr"')
+                # Else leave default or set base? CLI only sets if protocols match.
+                # But to be safe/explicit let's leave it as CLI does (only if match).
+                
+                lines.append("") # Blank line
+
+            # Hosts
             for n, d in self.lab['hosts'].items():
                 for i, iface in enumerate(d.get('interfaces', [])):
-                    if iface.get('lan'): lines.append(f"{n}[{i}]={iface['lan']}")
+                    if iface.get('lan'): 
+                        lines.append(f"{n}[{i}]={iface['lan']}")
+                lines.append(f'{n}[image]="kathara/base"')
+                lines.append("")
+
+            # WWW
             for n, d in self.lab['www'].items():
-                if d.get('lan'): lines.append(f"{n}[0]={d['lan']}")
+                if d.get('lan'): 
+                    lines.append(f"{n}[0]={d['lan']}")
+                lines.append(f'{n}[image]="kathara/base"')
+                lines.append("")
+
+            # DNS
             for n, d in self.lab['dns'].items():
-                if d.get('lan'): lines.append(f"{n}[0]={d['lan']}")
+                if d.get('lan'): 
+                    lines.append(f"{n}[0]={d['lan']}")
+                lines.append(f'{n}[image]="kathara/base"')
+                lines.append("")
                 
             with open(os.path.join(folder, 'lab.conf'), 'w') as f:
                 f.write('\n'.join(lines))
