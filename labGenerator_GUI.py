@@ -270,7 +270,15 @@ class TopologyView(QWebEngineView):
                 else:
                     shape = 'icon'
                     icon = {'face': "'FontAwesome'", 'code': '\uf0e8', 'size': 50, 'color': '#0969da'}
-                title = f"Router: {node}\nASN: {data.get('asn', '-')}"
+                    icon = {'face': "'FontAwesome'", 'code': '\uf0e8', 'size': 50, 'color': '#0969da'}
+                
+                asn_str = f"ASN: {data.get('asn', '-')}"
+                loops = data.get('loopbacks', [])
+                loop_str = ""
+                if loops:
+                    loop_str = "\nLoopbacks:\n" + "\n".join(loops)
+                
+                title = f"Router: {node}\n{asn_str}{loop_str}"
                 
             elif dtype == 'host':
                 custom_img = get_icon_data('Host')
@@ -1054,6 +1062,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.lab = {'routers': {}, 'hosts': {}, 'www': {}, 'dns': {}}
         self.output_dir = ''
+        self.current_lab_path = None  # Track current lab path for smart save
         self.setup_ui()
     
     def create_rounded_icon(self, icon_path, size=256):
@@ -1471,7 +1480,8 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Routers
         for name, data in self.lab['routers'].items():
-            G.add_node(name, device_type='router', asn=data.get('asn'), label=name)
+            loopbacks = data.get('loopbacks', [])
+            G.add_node(name, device_type='router', asn=data.get('asn'), label=name, loopbacks=loopbacks)
             for iface in data.get('interfaces', []):
                 lan = iface.get('lan', '').strip()
                 ip = iface.get('ip', '').strip()
@@ -1533,21 +1543,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.topo_view.set_graph(G)
 
     def gen_lab(self):
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleziona Cartella Output")
-        if not folder: return
-        
-        # Ask for Lab Name
-        lab_name, ok = QtWidgets.QInputDialog.getText(self, "Nome Lab", "Inserisci il nome del laboratorio:")
-        if not ok or not lab_name.strip():
-            return
+        # Smart Save Logic
+        if self.current_lab_path and os.path.exists(self.current_lab_path):
+            # Overwrite existing
+            target_dir = self.current_lab_path
+            lab_name = os.path.basename(target_dir)
+        else:
+            # New Save
+            folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Seleziona Cartella Output")
+            if not folder: return
             
-        # Create subdirectory
-        target_dir = os.path.join(folder, lab_name.strip())
-        try:
-            os.makedirs(target_dir, exist_ok=True)
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Errore", f"Impossibile creare la cartella: {e}")
-            return
+            # Ask for Lab Name
+            lab_name, ok = QtWidgets.QInputDialog.getText(self, "Nome Lab", "Inserisci il nome del laboratorio:")
+            if not ok or not lab_name.strip():
+                return
+                
+            # Create subdirectory
+            target_dir = os.path.join(folder, lab_name.strip())
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+                self.current_lab_path = target_dir # Set current path
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Errore", f"Impossibile creare la cartella: {e}")
+                return
 
         if not lg:
             QtWidgets.QMessageBox.critical(self, "Errore", "Modulo labGenerator non disponibile.")
@@ -1597,8 +1615,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 
             with open(os.path.join(folder, 'lab.conf'), 'w') as f:
                 f.write('\n'.join(lines))
-                
-            QtWidgets.QMessageBox.information(self, "Successo", "Lab generato correttamente!")
+            
+            # --- AUTO BGP & LOOPBACKS ---
+            # Automatically generate BGP neighbors and iBGP loopbacks
+            try:
+                lg.auto_generate_bgp_neighbors(folder, self.lab['routers'])
+                lg.add_ibgp_loopback_neighbors(folder, self.lab['routers'])
+            except Exception as e:
+                print(f"Warning during auto-BGP generation: {e}")
+
+            QtWidgets.QMessageBox.information(self, "Successo", f"Lab salvato in: {target_dir}")
             self.btn_post.setEnabled(True)
             
         except Exception as e:
@@ -1899,28 +1925,43 @@ class MainWindow(QtWidgets.QMainWindow):
                 # data['ips'] è {idx: ip} (opzionale)
                 ips = data.get('ips', {})
                 
-                # Heuristics based on Image AND Name
+                # Heuristics based on File System Structure (Stronger)
                 is_router = False
                 is_www = False
                 is_dns = False
                 
-                # Check Image first
-                if 'router' in image or 'frr' in image or 'quagga' in image:
+                # Check for Router Configs
+                if os.path.exists(os.path.join(folder, name, 'etc', 'frr', 'frr.conf')) or \
+                   os.path.exists(os.path.join(folder, name, 'etc', 'quagga', 'bgpd.conf')):
                     is_router = True
-                elif 'www' in image or 'apache' in image or 'nginx' in image:
+                    
+                # Check for WWW Configs
+                elif os.path.exists(os.path.join(folder, name, 'var', 'www', 'html')):
                     is_www = True
-                elif 'bind' in image or 'dns' in image:
+                    
+                # Check for DNS Configs
+                elif os.path.exists(os.path.join(folder, name, 'etc', 'bind', 'named.conf')):
                     is_dns = True
                 
-                # Check Name if Image didn't match specific types (or image is empty)
+                # Fallback: Heuristics based on Image AND Name
                 if not (is_router or is_www or is_dns):
-                    lower_name = name.lower()
-                    if lower_name.startswith('r') or 'router' in lower_name:
+                    # Check Image first
+                    if 'router' in image or 'frr' in image or 'quagga' in image:
                         is_router = True
-                    elif lower_name.startswith('w') or 'www' in lower_name or 'server' in lower_name:
+                    elif 'www' in image or 'apache' in image or 'nginx' in image:
                         is_www = True
-                    elif 'dns' in lower_name or 'ns' in lower_name:
+                    elif 'bind' in image or 'dns' in image:
                         is_dns = True
+                    
+                    # Check Name if Image didn't match specific types (or image is empty)
+                    if not (is_router or is_www or is_dns):
+                        lower_name = name.lower()
+                        if lower_name.startswith('r') or 'router' in lower_name:
+                            is_router = True
+                        elif lower_name.startswith('w') or 'www' in lower_name or 'server' in lower_name:
+                            is_www = True
+                        elif 'dns' in lower_name or 'ns' in lower_name:
+                            is_dns = True
                 
                 if is_router:
                     router_ifaces = []
@@ -2034,6 +2075,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     }
             
             self.output_dir = folder
+            self.current_lab_path = folder # Set current path for smart save
             # self.btn_post.setEnabled(True) # Already enabled
             
             QtWidgets.QMessageBox.information(self, "Importazione Completata", 
