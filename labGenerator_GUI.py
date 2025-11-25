@@ -277,6 +277,10 @@ class TopologyView(QWebEngineView):
                 loop_str = ""
                 if loops:
                     loop_str = "\nLoopbacks:\n" + "\n".join(loops)
+                    # Show first loopback in label for visibility
+                    node_label = f"{node}\n{loops[0]}"
+                else:
+                    node_label = node
                 
                 title = f"Router: {node}\n{asn_str}{loop_str}"
                 
@@ -326,9 +330,12 @@ class TopologyView(QWebEngineView):
 
             # Aggiungi nodo (se non LAN)
             if shape == 'image':
-                net.add_node(node, label=node, title=title, shape=shape, image=image, size=size)
+                # Use calculated node_label if available (for routers), else default to node name
+                lbl = locals().get('node_label', node)
+                net.add_node(node, label=lbl, title=title, shape=shape, image=image, size=size)
             elif shape == 'icon':
-                net.add_node(node, label=node, title=title, shape=shape, icon=icon)
+                lbl = locals().get('node_label', node)
+                net.add_node(node, label=lbl, title=title, shape=shape, icon=icon)
             else:
                 net.add_node(node, label=node, title=title, shape=shape, color=color, size=size)
         
@@ -1335,6 +1342,12 @@ class MainWindow(QtWidgets.QMainWindow):
             for i in d.get('interfaces', []):
                 info += f"<li><b>{i['name']}</b>: {i['ip']} (LAN: {i['lan']})</li>"
             info += "</ul>"
+            
+            if d.get('loopbacks'):
+                info += "<h3>Loopbacks:</h3><ul>"
+                for lb in d['loopbacks']:
+                    info += f"<li>{lb}</li>"
+                info += "</ul>"
         elif dtype == 'H':
             d = self.lab['hosts'][name]
             info = f"<h1>Host {name}</h1>"
