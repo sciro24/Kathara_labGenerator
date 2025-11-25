@@ -343,11 +343,17 @@ class TopologyView(QWebEngineView):
                 if loops:
                     loop_str = "\nLoopbacks:\n" + "\n".join(loops)
                     # Show first loopback in label for visibility
-                    node_label = f"{node}\n{loops[0]}"
+                    lbl = f"{node}\n{loops[0]}"
                 else:
-                    node_label = node
-                
+                    lbl = node
                 title = f"Router: {node}\n{asn_str}{loop_str}"
+                
+                # Pass ASN to node options for JS grouping
+                # Use group_asn (calculated in build_graph) if available, otherwise fallback to asn
+                group_val = data.get('group_asn')
+                if not group_val: group_val = data.get('asn')
+                
+                net.add_node(node, label=lbl, title=title, shape=shape, image=image, size=size, asn=group_val)
                 
             elif dtype == 'host':
                 custom_img = get_icon_data('Host')
@@ -359,6 +365,7 @@ class TopologyView(QWebEngineView):
                     shape = 'icon'
                     icon = {'face': "'FontAwesome'", 'code': '\uf109', 'size': 40, 'color': '#1a7f37'}
                 title = f"Host: {node}"
+                net.add_node(node, label=node, title=title, shape=shape, image=image, icon=icon, size=size)
                 
             elif dtype == 'www':
                 custom_img = get_icon_data('WWW')
@@ -370,7 +377,8 @@ class TopologyView(QWebEngineView):
                     shape = 'icon'
                     icon = {'face': "'FontAwesome'", 'code': '\uf233', 'size': 40, 'color': '#bf3989'}
                 title = f"WWW: {node}"
-                
+                net.add_node(node, label=node, title=title, shape=shape, image=image, icon=icon, size=size)
+
             elif dtype == 'dns':
                 custom_img = get_icon_data('DNS')
                 if custom_img:
@@ -379,10 +387,11 @@ class TopologyView(QWebEngineView):
                     size = 25
                 else:
                     shape = 'icon'
-                    icon = {'face': "'FontAwesome'", 'code': '\uf233', 'size': 40, 'color': '#8250df'}
+                    icon = {'face': "'FontAwesome'", 'code': '\uf0ac', 'size': 40, 'color': '#d63384'}
                 title = f"DNS: {node}"
+                net.add_node(node, label=node, title=title, shape=shape, image=image, icon=icon, size=size)
                 
-            else: # LAN
+            elif dtype == 'lan':
                 # Box shape with label inside
                 shape = 'box'
                 color = {'background': '#ff9900', 'border': '#cc7a00'}
@@ -391,16 +400,8 @@ class TopologyView(QWebEngineView):
                 # Font bianco per contrasto su arancione
                 net.add_node(node, label=data.get('label', node), title=title, 
                              shape=shape, color=color, font={'size': 14, 'color': 'white', 'face': 'sans-serif', 'bold': True})
-                continue # Skip default add_node
-
-            # Aggiungi nodo (se non LAN)
-            if shape == 'image':
-                # Use calculated node_label if available (for routers), else default to node name
-                lbl = locals().get('node_label', node)
-                net.add_node(node, label=lbl, title=title, shape=shape, image=image, size=size)
-            elif shape == 'icon':
-                lbl = locals().get('node_label', node)
-                net.add_node(node, label=lbl, title=title, shape=shape, icon=icon)
+            
+            # Fallback for others (if not handled above, use default shape/color)
             else:
                 net.add_node(node, label=node, title=title, shape=shape, color=color, size=size)
         
@@ -450,7 +451,7 @@ class TopologyView(QWebEngineView):
             fa_css = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">'
             html_content = html_content.replace('<head>', f'<head>{fa_css}')
             
-            # Inject JS for click handling
+            # Inject JS for click handling and AS Cloud Drawing
             js_inject = """
             <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
             <script>
@@ -464,6 +465,91 @@ class TopologyView(QWebEngineView):
                     if (window.backend) {
                         window.backend.node_clicked(nodeId);
                     }
+                }
+            });
+
+            // --- AS Cloud Drawing Logic ---
+            
+            // Helper: Generate Pastel Color from ASN
+            var asnColors = {};
+            function getAsnColor(asn) {
+                if (!asnColors[asn]) {
+                    // Simple hash for hue
+                    var hash = 0;
+                    for (var i = 0; i < asn.length; i++) {
+                        hash = asn.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    var hue = Math.abs(hash % 360);
+                    asnColors[asn] = "hsla(" + hue + ", 70%, 80%, 0.4)"; // Transparent
+                }
+                return asnColors[asn];
+            }
+
+            // Hook into drawing
+            network.on("beforeDrawing", function(ctx) {
+                var nodes = network.body.nodes;
+                var groups = {};
+                
+                // 1. Group nodes by ASN
+                for (var nodeId in nodes) {
+                    if (nodes.hasOwnProperty(nodeId)) {
+                        var node = nodes[nodeId];
+                        // Check options for 'asn'
+                        if (node.options && node.options.asn && node.options.asn !== '-' && node.options.asn !== '') {
+                            var asn = node.options.asn;
+                            if (!groups[asn]) groups[asn] = [];
+                            groups[asn].push({x: node.x, y: node.y});
+                        }
+                    }
+                }
+                
+                // 2. Draw Circular Clouds
+                for (var asn in groups) {
+                    var points = groups[asn];
+                    if (points.length === 0) continue;
+                    
+                    // Calculate Centroid
+                    var cx = 0, cy = 0;
+                    for(var i=0; i<points.length; i++) {
+                        cx += points[i].x;
+                        cy += points[i].y;
+                    }
+                    cx /= points.length;
+                    cy /= points.length;
+                    
+                    // Calculate Radius (max distance + padding)
+                    var maxDist = 0;
+                    for(var i=0; i<points.length; i++) {
+                        var dx = points[i].x - cx;
+                        var dy = points[i].y - cy;
+                        var dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist > maxDist) maxDist = dist;
+                    }
+                    
+                    // Base radius for single node or tight groups
+                    var radius = maxDist + 60; 
+                    
+                    ctx.beginPath();
+                    var color = getAsnColor(asn);
+                    var strokeColor = color.replace("0.4)", "0.8)");
+                    
+                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+                    
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = strokeColor;
+                    ctx.lineWidth = 2; // Thinner line for circle
+                    
+                    ctx.globalCompositeOperation = 'destination-over'; // Draw BEHIND nodes
+                    ctx.stroke();
+                    ctx.fill();
+                    ctx.globalCompositeOperation = 'source-over'; // Reset
+                    
+                    // Draw ASN Label
+                    ctx.fillStyle = "#555";
+                    ctx.font = "bold 20px Arial";
+                    ctx.textAlign = "center";
+                    // Place label at top of circle
+                    ctx.fillText("AS " + asn, cx, cy - radius - 10);
                 }
             });
             </script>
@@ -1559,10 +1645,108 @@ class MainWindow(QtWidgets.QMainWindow):
     def build_graph(self):
         G = nx.Graph()
         
+        # --- UNION-FIND FOR AS GROUPING ---
+        parent = {}
+        def find(i):
+            if parent[i] == i: return i
+            parent[i] = find(parent[i])
+            return parent[i]
+        def union(i, j):
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_i] = root_j
+
+        # Initialize UF for all routers
+        router_names = list(self.lab['routers'].keys())
+        for n in router_names:
+            parent[n] = n
+            
+        # 1. Union by ASN
+        # Map ASN -> [routers]
+        asn_map = {}
+        for n, d in self.lab['routers'].items():
+            asn = d.get('asn', '')
+            if asn:
+                if asn not in asn_map: asn_map[asn] = []
+                asn_map[asn].append(n)
+        for asn, routers in asn_map.items():
+            for i in range(len(routers)-1):
+                union(routers[i], routers[i+1])
+
+        # 2. Union by OSPF Area
+        # Map Area -> [routers]
+        # Only if 'ospf' is in protocols
+        ospf_map = {}
+        for n, d in self.lab['routers'].items():
+            if 'ospf' in d.get('protocols', []):
+                area = d.get('ospf_area', '')
+                if area:
+                    if area not in ospf_map: ospf_map[area] = []
+                    ospf_map[area].append(n)
+        for area, routers in ospf_map.items():
+            for i in range(len(routers)-1):
+                union(routers[i], routers[i+1])
+
+        # 3. Union by RIP (Shared LAN)
+        # Map LAN -> [routers with RIP]
+        rip_lan_map = {}
+        for n, d in self.lab['routers'].items():
+            if 'rip' in d.get('protocols', []):
+                for iface in d.get('interfaces', []):
+                    lan = iface.get('lan', '').strip()
+                    if lan:
+                        if lan not in rip_lan_map: rip_lan_map[lan] = []
+                        rip_lan_map[lan].append(n)
+        for lan, routers in rip_lan_map.items():
+            for i in range(len(routers)-1):
+                union(routers[i], routers[i+1])
+
+        # Resolve Groups and Determine Labels
+        # Group ID -> { 'asn': set(), 'ospf': set(), 'rip': bool }
+        groups_info = {}
+        for n in router_names:
+            root = find(n)
+            if root not in groups_info:
+                groups_info[root] = {'asn': set(), 'ospf': set(), 'rip': False}
+            
+            d = self.lab['routers'][n]
+            if d.get('asn'): groups_info[root]['asn'].add(d.get('asn'))
+            if 'ospf' in d.get('protocols', []) and d.get('ospf_area'):
+                groups_info[root]['ospf'].add(d.get('ospf_area'))
+            if 'rip' in d.get('protocols', []):
+                groups_info[root]['rip'] = True
+
+        # Assign group_asn to each router
+        router_group_asn = {}
+        for n in router_names:
+            root = find(n)
+            info = groups_info[root]
+            
+            # Determine Label Priority: ASN > OSPF > RIP
+            label = None
+            if info['asn']:
+                # Join multiple ASNs if present (rare/weird but possible)
+                label = "/".join(sorted(info['asn']))
+            elif info['ospf']:
+                label = "Area " + "/".join(sorted(info['ospf']))
+            elif info['rip']:
+                label = "RIP Domain"
+            
+            router_group_asn[n] = label
+
+        # --- BUILD GRAPH NODES ---
+        
         # Routers
         for name, data in self.lab['routers'].items():
             loopbacks = data.get('loopbacks', [])
-            G.add_node(name, device_type='router', asn=data.get('asn'), label=name, loopbacks=loopbacks)
+            # Use the calculated group label
+            group_label = router_group_asn.get(name)
+            
+            G.add_node(name, device_type='router', asn=data.get('asn'), 
+                       group_asn=group_label, # NEW ATTRIBUTE
+                       label=name, loopbacks=loopbacks)
+            
             for iface in data.get('interfaces', []):
                 lan = iface.get('lan', '').strip()
                 ip = iface.get('ip', '').strip()
