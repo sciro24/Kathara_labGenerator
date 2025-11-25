@@ -392,30 +392,22 @@ class TopologyView(QWebEngineView):
                 net.add_node(node, label=node, title=title, shape=shape, image=image, icon=icon, size=size)
                 
             elif dtype == 'lan':
+                # Always show LAN as a box first
+                shape = 'box'
+                color = {'background': '#ff9900', 'border': '#cc7a00'}
+                title = f"LAN: {data.get('label', node)}"
+                
+                net.add_node(node, label=data.get('label', node), title=title, 
+                             shape=shape, color=color, font={'size': 14, 'color': 'white', 'face': 'sans-serif', 'bold': True})
+
                 # Check if it's a stub LAN (Internet) - Degree 1
-                # Note: G is passed to set_graph, so we can check degree
-                is_cloud = False
                 if G.degree(node) == 1:
                     custom_img = get_icon_data('Cloud')
                     if custom_img:
-                        shape = 'image'
-                        image = custom_img
-                        size = 20
-                        is_cloud = True
-                        title = f"Internet/Cloud: {node}"
-                
-                if not is_cloud:
-                    # Box shape with label inside
-                    shape = 'box'
-                    color = {'background': '#ff9900', 'border': '#cc7a00'}
-                    size = None # size ignore
-                    title = f"LAN: {data.get('label', node)}"
-                    # Font bianco per contrasto su arancione
-                    net.add_node(node, label=data.get('label', node), title=title, 
-                                 shape=shape, color=color, font={'size': 14, 'color': 'white', 'face': 'sans-serif', 'bold': True})
-                else:
-                    # Add Cloud Node
-                    net.add_node(node, label=data.get('label', node), title=title, shape=shape, image=image, size=size)
+                        cloud_id = f"Cloud_{node}"
+                        net.add_node(cloud_id, label="Internet", title="Internet/Cl", shape='image', image=custom_img, size=40)
+                        # Connect LAN to Cloud
+                        net.add_edge(node, cloud_id, color='#d0d7de', width=2, length=100)
             
             # Fallback for others (if not handled above, use default shape/color)
             else:
@@ -548,7 +540,7 @@ class TopologyView(QWebEngineView):
                     }
                     
                     // Base radius for single node or tight groups
-                    var radius = maxDist + 60; 
+                    var radius = maxDist + 80; 
                     
                     ctx.beginPath();
                     var color = getAsnColor(asn);
@@ -566,11 +558,12 @@ class TopologyView(QWebEngineView):
                     ctx.globalCompositeOperation = 'source-over'; // Reset
                     
                     // Draw ASN Label
-                    ctx.fillStyle = "#555";
+                    ctx.fillStyle = "#8B0000"; // Dark Red
                     ctx.font = "bold 20px Arial";
                     ctx.textAlign = "center";
-                    // Place label at top of circle
-                    ctx.fillText("AS " + asn, cx, cy - radius - 10);
+                    ctx.textBaseline = "middle";
+                    // Place label at top of circle (inside)
+                    ctx.fillText("AS " + asn, cx, cy - radius + 30);
                 }
             });
             </script>
@@ -1224,6 +1217,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('Kathara labGenerator - sciro24 (GitHub)')
         self.resize(1600, 900)
         
+        self.lab_name = None # Initialize lab_name
+        
         # Set window icon with rounded corners
         try:
             base_path = sys._MEIPASS
@@ -1385,7 +1380,9 @@ class MainWindow(QtWidgets.QMainWindow):
         topo_bar.setFixedHeight(40) # Reduced height
         tb_layout = QtWidgets.QHBoxLayout(topo_bar)
         tb_layout.setContentsMargins(10, 0, 10, 0) # Reduced margins
-        tb_layout.addWidget(QtWidgets.QLabel("<b>Topologia</b>"))
+        
+        self.topo_header_label = QtWidgets.QLabel("<b>Topologia</b>") # Changed to self.topo_header_label
+        tb_layout.addWidget(self.topo_header_label)
         tb_layout.addStretch()
         btn_refresh = HoverButton("Aggiorna")
         btn_refresh.setStyleSheet(f"background-color: {ACCENT}; color: white; padding: 4px 8px;")
@@ -1851,6 +1848,11 @@ class MainWindow(QtWidgets.QMainWindow):
         for n in sorted(self.lab['www']): self.dev_list.addItem(f"[W] {n}")
         for n in sorted(self.lab['dns']): self.dev_list.addItem(f"[D] {n}")
         
+        # Update Topology Header with Lab Name
+        if hasattr(self, 'topo_header_label'):
+            lab_name = self.lab_name if self.lab_name else "Non Salvato"
+            self.topo_header_label.setText(f"<b>Topologia</b> ({lab_name})")
+        
         # Update Graph
         G = self.build_graph()
         self.topo_view.set_graph(G)
@@ -1885,6 +1887,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
             
         self.output_dir = target_dir
+        self.lab_name = os.path.basename(target_dir) # Set lab name when generating/saving
         folder = target_dir # Use the new subdirectory as the target folder
         try:
             # Routers
@@ -2092,6 +2095,8 @@ class MainWindow(QtWidgets.QMainWindow):
         
         if filter == "JSON (*.json)":
             with open(f, 'w') as fp: json.dump(self.lab, fp, indent=2)
+            self.lab_name = os.path.splitext(os.path.basename(f))[0] # Set lab name from saved file
+            self.redraw()
             QtWidgets.QMessageBox.information(self, "Successo", f"Salvato JSON in {f}")
         else:
             # XML
@@ -2109,6 +2114,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 dname = os.path.dirname(f)
                 fname = os.path.splitext(os.path.basename(f))[0]
                 lg.export_lab_to_xml(fname, dname, self.lab['routers'], combined_hosts, combined_www)
+                self.lab_name = fname # Set lab name from saved file
+                self.redraw()
                 QtWidgets.QMessageBox.information(self, "Successo", f"Salvato XML in {f}")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Errore Export XML", str(e))
@@ -2121,6 +2128,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if filter == "JSON (*.json)":
             try:
                 with open(f, 'r') as fp: self.lab = json.load(fp)
+                self.lab_name = os.path.splitext(os.path.basename(f))[0] # Set lab name from loaded file
                 self.redraw()
                 QtWidgets.QMessageBox.information(self, "Successo", "Lab caricato da JSON")
             except Exception as e:
@@ -2144,6 +2152,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.lab['hosts'][h['name']] = h
                 for w in wwws:
                     self.lab['www'][w['name']] = w
+                self.lab_name = os.path.splitext(os.path.basename(f))[0] # Set lab name from loaded file
                 self.redraw()
                 QtWidgets.QMessageBox.information(self, "Successo", "Lab caricato da XML")
             except Exception as e:
