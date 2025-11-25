@@ -11,7 +11,62 @@ import tempfile
 import shutil
 import re
 import subprocess
+import threading
 from typing import Dict, List, Optional
+
+# Suppress QtWebEngine warnings
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-logging --log-level=3 --no-proxy-server --disable-features=SkiaGraphite"
+
+def suppress_qt_warnings():
+    """
+    Redirect stderr to a pipe and filter out specific C++ level warnings 
+    from QtWebEngine that bypass sys.stderr.
+    """
+    try:
+        # Create a pipe
+        r, w = os.pipe()
+        
+        # Save original stderr fd
+        original_stderr_fd = os.dup(2)
+        
+        # Redirect stderr to the write end of the pipe
+        os.dup2(w, 2)
+        
+        # Create a file object for the original stderr to write allowed messages
+        original_stderr = os.fdopen(original_stderr_fd, 'wb', 0)
+        
+        # Create a file object for the read end of the pipe
+        pipe_reader = os.fdopen(r, 'rb', 0)
+        
+        def filter_thread():
+            while True:
+                try:
+                    data = pipe_reader.readline()
+                    if not data:
+                        break
+                    
+                    # Decode for checking, but write bytes
+                    try:
+                        msg = data.decode('utf-8', errors='ignore')
+                    except:
+                        msg = ""
+                        
+                    if "Skia Graphite backend" in msg or "V8 Proxy resolver" in msg:
+                        continue
+                        
+                    original_stderr.write(data)
+                    original_stderr.flush()
+                except Exception:
+                    break
+                    
+        t = threading.Thread(target=filter_thread, daemon=True)
+        t.start()
+        
+    except Exception as e:
+        print(f"Warning: Could not setup stderr filter: {e}")
+
+# Apply the filter immediately
+suppress_qt_warnings()
 
 try:
     import labGenerator as lg
