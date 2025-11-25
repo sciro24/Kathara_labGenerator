@@ -1,21 +1,43 @@
 # ------------------------------
-# macOS system files
+# 1. WHITELIST 
 # ------------------------------
+
+# Ignora tutto il contenuto della cartella corrente e sottocartelle
+*
+
+# File specifici da tracciare
+!labGenerator_GUI.py
+!labGenerator.py
+!requirements.txt
+!README.md
+!.gitignore
+
+# Cartelle specifiche da tracciare (incluso il contenuto)
+!icons/
+!images/
+
+# ------------------------------
+# 2. GLOBAL EXCLUDES (Safety Net)
+# ------------------------------
+
+
+# macOS system files
 .DS_Store
 ._*
 
+# Python artifacts
+__pycache__/
+*.py[cod]
+venv/
 
-# ------------------------------
 # Kathara / lab temporary files
-# ------------------------------
 *.log
 *.tmp
 *.pid
 *.pcap
 
-
-# ------------------------------
-# Python
-# ------------------------------
-venv/
-__pycache__/
+# Build artifacts 
+build/
+dist/
+*.spec
+*.dmg
