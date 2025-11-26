@@ -431,9 +431,32 @@ class TopologyView(QWebEngineView):
             if iface: full_label += f"{iface}\n"
             if ip: full_label += ip
             
-            # Improved Edge Styling: No background, long cables
-            net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                         font={'align': 'middle', 'size': 12, 'strokeWidth': 0})
+            # Detect LAN connections for longer cables
+            node_u = edge[0]
+            node_v = edge[1]
+            cable_length = None  # Default (vis.js will use default)
+            
+            # Check if either node is a LAN
+            is_lan_connection = False
+            if node_u in G.nodes:
+                if G.nodes[node_u].get('device_type') == 'lan':
+                    is_lan_connection = True
+            if node_v in G.nodes:
+                if G.nodes[node_v].get('device_type') == 'lan':
+                    is_lan_connection = True
+            
+            # Longer cables for LAN connections
+            if is_lan_connection:
+                cable_length = 200  # Cavi più lunghi per le LAN
+            
+            # Improved Edge Styling: No background, variable cable length for LANs
+            if cable_length:
+                net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
+                             font={'align': 'middle', 'size': 12, 'strokeWidth': 0},
+                             length=cable_length)
+            else:
+                net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
+                             font={'align': 'middle', 'size': 12, 'strokeWidth': 0})
 
         # Salva su file temporaneo
         if self.temp_file:
