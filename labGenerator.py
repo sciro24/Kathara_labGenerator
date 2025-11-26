@@ -2735,6 +2735,80 @@ def rebuild_lab_metadata_and_export(lab_path):
         return None
 
 # -------------------------
+# Opzioni Laboratorio Menu
+# -------------------------
+def opzioni_laboratorio_menu(base):
+    """Submenu per le opzioni di laboratorio esistente."""
+    while True:
+        items = [
+            'Assegna un Resolver a un dispositivo',
+            'Aggiungi Loopback',
+            'Applica Policies BGP'
+        ]
+        print_menu('=== Opzioni Laboratorio ===', items, extra_options=[('0', 'Torna indietro')])
+        choice = input('Seleziona (numero): ').strip()
+        
+        if choice == '0':
+            break
+        
+        if choice == '1':
+            # Assegna resolv.conf
+            target = input_non_vuoto('Percorso della directory del lab (es. /path/to/lab): ').strip()
+            if not os.path.isdir(target):
+                print(f"Directory non trovata: {target}")
+                continue
+            try:
+                assegna_resolv_conf(target)
+            except Exception as e:
+                print('Errore assegnando resolv.conf:', e)
+        
+        elif choice == '2':
+            # Aggiungi loopback
+            target = input_non_vuoto('Percorso della directory del lab su cui aggiungere loopback: ').strip()
+            if not os.path.isdir(target):
+                print(f"Directory non trovata: {target}")
+                continue
+            # prova a caricare XML esistente, altrimenti rigenera metadata
+            xmlpath = os.path.join(target, os.path.basename(os.path.normpath(target)) + '.xml')
+            try:
+                if os.path.exists(xmlpath):
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(xmlpath)
+                else:
+                    out = rebuild_lab_metadata_and_export(target)
+                    if not out:
+                        print('Impossibile generare metadata del lab.')
+                        continue
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(out)
+                aggiungi_loopback_menu(target, routers_meta)
+            except Exception as e:
+                print('Errore caricando il lab o aprendo il menu aggiungi loopback:', e)
+        
+        elif choice == '3':
+            # Applica Policies BGP
+            target = input_non_vuoto('Percorso della directory del lab su cui applicare policies: ')
+            if not os.path.isdir(target):
+                print(f"Directory non trovata: {target}")
+                continue
+            # try to load existing XML for the lab, otherwise regenerate it
+            xmlpath = os.path.join(target, os.path.basename(os.path.normpath(target)) + '.xml')
+            try:
+                if os.path.exists(xmlpath):
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(xmlpath)
+                else:
+                    out = rebuild_lab_metadata_and_export(target)
+                    if not out:
+                        print('Impossibile generare metadata del lab.')
+                        continue
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(out)
+                # apri il sotto-menu Policies
+                policies_menu(target, routers_meta)
+            except Exception as e:
+                print('Errore caricando il lab o aprendo policies:', e)
+        
+        else:
+            print('Scelta non valida, riprova.')
+
+# -------------------------
 # Main
 # -------------------------
 def main():
@@ -2765,31 +2839,29 @@ def main():
         return
 
     # Modalità interattiva: chiedi all'utente se creare o importare
-    print("\n\n----- Katharà Lab Generator 2025 (Github: sciro24) -----\n")
-    print("Scegli una modalità:\n")
-    print("  C - Crea nuovo laboratorio (interattivo)")
-    print("  I - Importa da file (XML/JSON)")
-    print("  R - Rigenera XML di un lab esistente")
-    print("  G - Genera comando PING per un lab esistente (copia/incolla)")
-    print("  A - Assegna un file resolv.conf specifico a un dispositivo")
-    print("  L - Aggiungi loopback a dispositivo in un lab esistente")
-    print("  P - Applica Policies BGP")
-    print("  Q - Esci\n")
-    print("--------------------------------------------------------\n")
-
     while True:
-        mode = input_non_vuoto("Digita un'opzione (C/I/R/G/A/L/P/Q): ").strip().lower()
+        print("\n\n----- Katharà Lab Generator 2025 (Github: sciro24) -----\n")
+        print("Scegli una modalità:\n")
+        print("  1) Crea nuovo Laboratorio")
+        print("  2) Importa file XML/JSON")
+        print("  3) Genera file XML")
+        print("  4) Testa Funzionamento (PING)")
+        print("  5) Opzioni Laboratorio")
+        print("  0) Esci\n")
+        print("--------------------------------------------------------\n")
+        
+        mode = input_non_vuoto("Digita un'opzione (0-5): ").strip()
         if not mode:
             continue
-        if mode.startswith('q'):
+        if mode == '0':
             print('Uscita.')
             return
-        if mode.startswith('c'):
+        if mode == '1':
             # procedi con il flusso interattivo classico
             lab_name = input_non_vuoto("Nome del laboratorio: ")
             lab_path = os.path.join(base, lab_name)
             break
-        if mode.startswith('i'):
+        if mode == '2':
             file_path = input_non_vuoto("Percorso del file XML/JSON da importare: ")
             if not os.path.exists(file_path):
                 print(f"File non trovato: {file_path}")
@@ -2812,7 +2884,7 @@ def main():
             except Exception as e:
                 print('Errore importando il file:', e)
                 continue
-        if mode.startswith('r'):
+        if mode == '3':
             target = input_non_vuoto('Percorso della directory del lab da cui rigenerare l\'XML: ')
             if not os.path.isdir(target):
                 print(f"Directory non trovata: {target}")
@@ -2823,7 +2895,7 @@ def main():
             else:
                 print("❌ Rigenerazione XML fallita.")
             return
-        if mode.startswith('g'):
+        if mode == '4':
             target = input_non_vuoto('Percorso della directory del lab per generare il comando ping: ')
             if not os.path.isdir(target):
                 print(f"Directory non trovata: {target}")
@@ -2850,58 +2922,9 @@ def main():
             print('\n\n=== Fine comando ===\n')
             # torna al menu principale
             continue
-        if mode.startswith('a'):
-            target = input_non_vuoto('Percorso della directory del lab (es. /path/to/lab): ').strip()
-            if not os.path.isdir(target):
-                print(f"Directory non trovata: {target}")
-                continue
-            try:
-                assegna_resolv_conf(target)
-            except Exception as e:
-                print('Errore assegnando resolv.conf:', e)
-            # torna al menu principale
-            continue
-        if mode.startswith('p'):
-            target = input_non_vuoto('Percorso della directory del lab su cui applicare policies: ')
-            if not os.path.isdir(target):
-                print(f"Directory non trovata: {target}")
-                continue
-            # try to load existing XML for the lab, otherwise regenerate it
-            xmlpath = os.path.join(target, os.path.basename(os.path.normpath(target)) + '.xml')
-            try:
-                if os.path.exists(xmlpath):
-                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(xmlpath)
-                else:
-                    out = rebuild_lab_metadata_and_export(target)
-                    if not out:
-                        print('Impossibile generare metadata del lab.')
-                        continue
-                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(out)
-                # apri il sotto-menu Policies
-                policies_menu(target, routers_meta)
-            except Exception as e:
-                print('Errore caricando il lab o aprendo policies:', e)
-            # torna al menu principale
-            continue
-        if mode.startswith('l'):
-            target = input_non_vuoto('Percorso della directory del lab su cui aggiungere loopback: ').strip()
-            if not os.path.isdir(target):
-                print(f"Directory non trovata: {target}")
-                continue
-            # prova a caricare XML esistente, altrimenti rigenera metadata
-            xmlpath = os.path.join(target, os.path.basename(os.path.normpath(target)) + '.xml')
-            try:
-                if os.path.exists(xmlpath):
-                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(xmlpath)
-                else:
-                    out = rebuild_lab_metadata_and_export(target)
-                    if not out:
-                        print('Impossibile generare metadata del lab.')
-                        continue
-                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(out)
-                aggiungi_loopback_menu(target, routers_meta)
-            except Exception as e:
-                print('Errore caricando il lab o aprendo il menu aggiungi loopback:', e)
+        if mode == '5':
+            # Opzioni Laboratorio - nuovo submenu
+            opzioni_laboratorio_menu(base)
             continue
         print('Scelta non valida, riprova.')
 
