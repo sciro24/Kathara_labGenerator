@@ -416,6 +416,26 @@ class TopologyView(QWebEngineView):
                         # Connect LAN to Cloud
                         net.add_edge(node, cloud_id, color='#d0d7de', width=2, length=100)
             
+            elif dtype == 'interface':
+                # Small RJ45 icon for interface with label
+                custom_img = get_icon_data('rj45')
+                iface_label = data.get('label', '')
+                title = f"Interface: {iface_label}"
+                
+                if custom_img:
+                    shape = 'image'
+                    image = custom_img
+                    size = 12  # Smaller icon
+                    net.add_node(node, label=iface_label, title=title, shape=shape, image=image, size=size,
+                                font={'size': 10, 'color': '#24292f', 'face': 'monospace', 'align': 'left'})
+                else:
+                    # Fallback to black dot if icon not found
+                    shape = 'dot'
+                    color = {'background': '#000000', 'border': '#000000'}
+                    size = 6
+                    net.add_node(node, label=iface_label, title=title, shape=shape, color=color, size=size,
+                                font={'size': 10, 'color': '#24292f', 'face': 'monospace', 'align': 'left'})
+            
             # Fallback for others (if not handled above, use default shape/color)
             else:
                 net.add_node(node, label=node, title=title, shape=shape, color=color, size=size)
@@ -426,37 +446,73 @@ class TopologyView(QWebEngineView):
             ip = edge[2].get('label', '')
             iface = edge[2].get('iface', '')
             
-            # Costruisci label completa: "eth0\n10.0.0.1"
-            full_label = ""
-            if iface: full_label += f"{iface}\n"
-            if ip: full_label += ip
-            
-            # Detect LAN connections for longer cables
             node_u = edge[0]
             node_v = edge[1]
-            cable_length = None  # Default (vis.js will use default)
             
-            # Check if either node is a LAN
-            is_lan_connection = False
-            if node_u in G.nodes:
-                if G.nodes[node_u].get('device_type') == 'lan':
-                    is_lan_connection = True
-            if node_v in G.nodes:
-                if G.nodes[node_v].get('device_type') == 'lan':
-                    is_lan_connection = True
+            # Check if this is a Device->Interface connection (should be short and invisible)
+            is_device_to_interface = False
+            if node_u in G.nodes and node_v in G.nodes:
+                if G.nodes[node_v].get('device_type') == 'interface':
+                    is_device_to_interface = True
+                elif G.nodes[node_u].get('device_type') == 'interface':
+                    is_device_to_interface = True
             
-            # Longer cables for LAN connections
-            if is_lan_connection:
-                cable_length = 200  # Cavi più lunghi per le LAN
-            
-            # Improved Edge Styling: No background, variable cable length for LANs
-            if cable_length:
-                net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                             font={'align': 'middle', 'size': 12, 'strokeWidth': 0},
-                             length=cable_length)
+            if is_device_to_interface:
+                # Very short, thin connection so LAN appears to start from RJ45 icon
+                net.add_edge(edge[0], edge[1], color='#e0e0e0', width=1, label='', 
+                             length=5, smooth=False, dashes=False)
             else:
-                net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                             font={'align': 'middle', 'size': 12, 'strokeWidth': 0})
+                # Normal connection (Interface→LAN or other)
+                # Show IP and LAN name
+                ip = edge[2].get('label', '')
+                lan_name = edge[2].get('lan_name', '')
+                
+                # Build label: "LAN_NAME\nIP"
+                full_label = ''
+                if lan_name:
+                    full_label = lan_name
+                if ip:
+                    if full_label:
+                        full_label += f'\n{ip}'
+                    else:
+                        full_label = ip
+                
+                # Detect if this is an Interface→LAN connection
+                is_interface_to_lan = False
+                if node_u in G.nodes and node_v in G.nodes:
+                    u_type = G.nodes[node_u].get('device_type')
+                    v_type = G.nodes[node_v].get('device_type')
+                    if (u_type == 'interface' and v_type == 'lan') or (u_type == 'lan' and v_type == 'interface'):
+                        is_interface_to_lan = True
+                
+                # Detect LAN connections for longer cables
+                cable_length = None
+                is_lan_connection = False
+                if node_u in G.nodes:
+                    if G.nodes[node_u].get('device_type') == 'lan':
+                        is_lan_connection = True
+                if node_v in G.nodes:
+                    if G.nodes[node_v].get('device_type') == 'lan':
+                        is_lan_connection = True
+                
+                # Longer cables for LAN connections
+                if is_lan_connection:
+                    cable_length = 200
+                
+                # Use smooth curves for Interface→LAN to avoid passing through devices
+                if is_interface_to_lan:
+                    smooth_config = {'enabled': True, 'type': 'dynamic', 'roundness': 0.5}
+                else:
+                    smooth_config = False
+                
+                # Improved Edge Styling: variable cable length, smart smoothing
+                if cable_length:
+                    net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
+                                 font={'align': 'middle', 'size': 12, 'strokeWidth': 0},
+                                 length=cable_length, smooth=smooth_config)
+                else:
+                    net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
+                                 font={'align': 'middle', 'size': 12, 'strokeWidth': 0}, smooth=smooth_config)
 
         # Salva su file temporaneo
         if self.temp_file:
@@ -513,17 +569,31 @@ class TopologyView(QWebEngineView):
 
             // --- AS Cloud Drawing Logic ---
             
-            // Helper: Generate Pastel Color from ASN
+            // Helper: Generate Distinct Color from ASN
             var asnColors = {};
+            var colorPalette = [
+                "hsla(0, 70%, 75%, 0.4)",    // Red
+                "hsla(30, 70%, 75%, 0.4)",   // Orange
+                "hsla(60, 70%, 75%, 0.4)",   // Yellow
+                "hsla(120, 70%, 75%, 0.4)",  // Green
+                "hsla(180, 70%, 75%, 0.4)",  // Cyan
+                "hsla(210, 70%, 75%, 0.4)",  // Blue
+                "hsla(270, 70%, 75%, 0.4)",  // Purple
+                "hsla(300, 70%, 75%, 0.4)",  // Magenta
+                "hsla(15, 70%, 75%, 0.4)",   // Red-Orange
+                "hsla(45, 70%, 75%, 0.4)",   // Gold
+                "hsla(90, 70%, 75%, 0.4)",   // Yellow-Green
+                "hsla(150, 70%, 75%, 0.4)",  // Teal
+                "hsla(240, 70%, 75%, 0.4)",  // Indigo
+                "hsla(330, 70%, 75%, 0.4)"   // Pink
+            ];
+            var colorIndex = 0;
+            
             function getAsnColor(asn) {
                 if (!asnColors[asn]) {
-                    // Simple hash for hue
-                    var hash = 0;
-                    for (var i = 0; i < asn.length; i++) {
-                        hash = asn.charCodeAt(i) + ((hash << 5) - hash);
-                    }
-                    var hue = Math.abs(hash % 360);
-                    asnColors[asn] = "hsla(" + hue + ", 70%, 80%, 0.4)"; // Transparent
+                    // Assign next color from palette
+                    asnColors[asn] = colorPalette[colorIndex % colorPalette.length];
+                    colorIndex++;
                 }
                 return asnColors[asn];
             }
@@ -1830,29 +1900,45 @@ class MainWindow(QtWidgets.QMainWindow):
                        group_asn=group_label, # NEW ATTRIBUTE
                        label=name, loopbacks=loopbacks)
             
-            for iface in data.get('interfaces', []):
+            
+            for idx, iface in enumerate(data.get('interfaces', [])):
                 lan = iface.get('lan', '').strip()
                 ip = iface.get('ip', '').strip()
+                iface_name = iface.get('name', f'eth{idx}')
                 if lan:
                     lan_id = f"LAN_{lan}"
                     if not G.has_node(lan_id):
                         G.add_node(lan_id, device_type='lan', label=lan)
-                    G.add_edge(name, lan_id, label=ip)
+                    
+                    # Create interface node (black dot)
+                    iface_node_id = f"{name}_{iface_name}"
+                    G.add_node(iface_node_id, device_type='interface', label=iface_name, parent_device=name)
+                    
+                    # Connect: Device -> Interface -> LAN
+                    G.add_edge(name, iface_node_id, label='', iface='', lan_name='')  # Short invisible connection
+                    G.add_edge(iface_node_id, lan_id, label=ip, iface=iface_name, lan_name=lan)
+
                     
         # Hosts
         for name, data in self.lab['hosts'].items():
             G.add_node(name, device_type='host', label=name)
             # Host interfaces
-            for iface in data.get('interfaces', []):
-                # Se l'host ha un campo LAN (che aggiungeremo), usalo.
-                # Altrimenti, per ora non colleghiamo se non c'è info.
+            for idx, iface in enumerate(data.get('interfaces', [])):
                 lan = iface.get('lan', '').strip()
                 ip = iface.get('ip', '').strip()
+                iface_name = iface.get('name', f'eth{idx}')
                 if lan:
                     lan_id = f"LAN_{lan}"
                     if not G.has_node(lan_id):
                         G.add_node(lan_id, device_type='lan', label=lan)
-                    G.add_edge(name, lan_id, label=ip)
+                    
+                    # Create interface node (black dot)
+                    iface_node_id = f"{name}_{iface_name}"
+                    G.add_node(iface_node_id, device_type='interface', label=iface_name, parent_device=name)
+                    
+                    # Connect: Device -> Interface -> LAN
+                    G.add_edge(name, iface_node_id, label='', iface='', lan_name='')
+                    G.add_edge(iface_node_id, lan_id, label=ip, iface=iface_name, lan_name=lan)
             
         # WWW
         for name, data in self.lab['www'].items():
@@ -1863,7 +1949,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 lan_id = f"LAN_{lan}"
                 if not G.has_node(lan_id):
                     G.add_node(lan_id, device_type='lan', label=lan)
-                G.add_edge(name, lan_id, label=ip)
+                
+                # Create interface node (black dot)
+                iface_name = 'eth0'
+                iface_node_id = f"{name}_{iface_name}"
+                G.add_node(iface_node_id, device_type='interface', label=iface_name, parent_device=name)
+                
+                # Connect: Device -> Interface -> LAN
+                G.add_edge(name, iface_node_id, label='', iface='', lan_name='')
+                G.add_edge(iface_node_id, lan_id, label=ip, iface=iface_name, lan_name=lan)
                 
         # DNS
         for name, data in self.lab['dns'].items():
@@ -1874,7 +1968,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 lan_id = f"LAN_{lan}"
                 if not G.has_node(lan_id):
                     G.add_node(lan_id, device_type='lan', label=lan)
-                G.add_edge(name, lan_id, label=ip)
+                
+                # Create interface node (black dot)
+                iface_name = 'eth0'
+                iface_node_id = f"{name}_{iface_name}"
+                G.add_node(iface_node_id, device_type='interface', label=iface_name, parent_device=name)
+                
+                # Connect: Device -> Interface -> LAN
+                G.add_edge(name, iface_node_id, label='', iface='', lan_name='')
+                G.add_edge(iface_node_id, lan_id, label=ip, iface=iface_name, lan_name=lan)
                 
         # Calculate and add degree for LAN nodes
         for node in list(G.nodes()): # Iterate over a copy to avoid issues if nodes are removed
