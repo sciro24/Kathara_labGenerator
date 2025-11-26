@@ -2080,15 +2080,15 @@ def aggiungi_customer_provider_wizard(base_path, routers):
         # OUT: permit solo le mie reti e quelle dei miei clienti
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         
-        print("Inserisci le TUE reti da annunciare al provider (separate da virgola):")
-        print("⚠️  ATTENZIONE: NON inserire le reti con e dei tuoi peer-to-peer!")
+        print("\nInserisci le TUE reti da annunciare al provider (separate da virgola):")
+        print("⚠️  ATTENZIONE: NON inserire le reti DEI tuoi PEER!")
         my_nets = input("> ").strip()
         if my_nets:
             for net in my_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
         
-        print("Inserisci le reti dei tuoi CLIENTI da annunciare al provider (separate da virgola, o invio per nessuna):")
-        print("⚠️  ATTENZIONE: NON inserire le reti con e dei tuoi peer-to-peer!")
+        print("\nInserisci le reti dei tuoi CLIENTI da annunciare al provider (separate da virgola, o invio per nessuna):")
+        print("⚠️  ATTENZIONE: NON inserire le reti DEI tuoi PEER!")
         cust_nets = input("> ").strip()
         if cust_nets:
             for net in cust_nets.replace(',', ' ').split():
@@ -2107,36 +2107,37 @@ def aggiungi_customer_provider_wizard(base_path, routers):
         # OUT: permit solo le mie reti e quelle dei miei clienti (NON le reti del provider)
         lines_to_append.append(f"ip prefix-list {pl_in} permit any")
         
-        print("Inserisci le TUE reti da annunciare al peer (separate da virgola):")
-        print("⚠️  ATTENZIONE: NON inserire le reti con e del tuo provider!")
+        print("\nInserisci le TUE reti da annunciare al peer (separate da virgola):")
+        print("⚠️  ATTENZIONE: NON inserire le reti DEL tuo PROVIDER!")
         my_nets = input("> ").strip()
         if my_nets:
             for net in my_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
         
-        print("Inserisci le reti dei tuoi CLIENTI da annunciare al peer (separate da virgola, o invio per nessuna):")
-        print("⚠️  ATTENZIONE: NON inserire le reti con e del tuo provider!")
+        print("\nInserisci le reti dei tuoi CLIENTI da annunciare al peer (separate da virgola, o invio per nessuna):")
+        print("⚠️  ATTENZIONE: NON inserire le reti DEL tuo PROVIDER!")
         cust_nets = input("> ").strip()
         if cust_nets:
             for net in cust_nets.replace(',', ' ').split():
                 lines_to_append.append(f"ip prefix-list {pl_out} permit {net}")
 
-    # Scrivi le prefix-list nel file (append global)
-    try:
-        with open(fpath, 'a') as f:
-            f.write('\n')
-            for l in lines_to_append:
-                f.write(l + '\n')
-    except Exception as e:
-        print(f"❌ Errore scrivendo le prefix-list: {e}")
-        return
-    
-    # Collega le prefix-list al neighbor
+    # Collega le prefix-list al neighbor (con riga vuota prima per separazione)
     neigh_lines = [
+        "",  # blank line for separation
         f"neighbor {neigh_ip} prefix-list {pl_in} in",
         f"neighbor {neigh_ip} prefix-list {pl_out} out"
     ]
     if insert_lines_into_protocol_block(fpath, proto='bgp', asn=None, lines=neigh_lines):
+        # Scrivi le prefix-list nel file (append global) con riga vuota prima
+        try:
+            with open(fpath, 'a') as f:
+                f.write('\n')  # blank line before prefix-list definitions
+                for l in lines_to_append:
+                    f.write(l + '\n')
+                f.write('\n')  # blank line after prefix-list definitions
+        except Exception as e:
+            print(f"❌ Errore scrivendo le prefix-list: {e}")
+            return
         print(f"✅ Configurazione {rel_type.upper()} applicata su {target} verso {neigh_name}.")
     else:
         print(f"❌ Errore applicando la configurazione neighbor su {target}.")
