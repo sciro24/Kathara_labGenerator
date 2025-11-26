@@ -1,0 +1,40 @@
+# -----------------------------------------------------------
+# 1. ARTEFATTI PYTHON E AMBIENTI
+# -----------------------------------------------------------
+
+# Bytecode e cache di Python
+__pycache__/
+*.py[cod]
+
+# Ambiente virtuale (venv)
+.venv/
+
+# File di output di build e packaging (es. PyInstaller)
+build/
+dist/
+*.spec
+
+# File specifici di Python da ignorare
+watcher.py
+
+# -----------------------------------------------------------
+# 2. FILE DI SISTEMA E DI BUILD
+# -----------------------------------------------------------
+
+# File temporanei di macOS/Linux
+.DS_Store
+._*
+
+# File di installazione o script specifici
+*.dmg
+*.sh 
+
+# -----------------------------------------------------------
+# 3. FILE TEMPORANEI E LOG
+# -----------------------------------------------------------
+
+# File comuni generati da tool
+*.log
+*.tmp
+*.pid
+*.pcap
