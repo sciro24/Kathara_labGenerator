@@ -351,10 +351,13 @@ def mk_bgp_stanza(asn, redistribute=None, networks=None):
     """
     lines = [
         f"router bgp {asn}",
+        "",
         "    no bgp ebgp-requires-policy",
         "    no bgp network import-check",
     ]
     if networks:
+        # aggiungi riga vuota prima delle network
+        lines.append("")
         # scrivi le network così come sono (dedupando)
         seen = set()
         for net in networks:
@@ -381,7 +384,7 @@ def mk_ospf_stanza(networks, area=None, stub=False, redistribute=None):
 
     Per accorciamenti, usiamo solo prefissi /8, /16 o /24 quando possibile.
     """
-    lines = ["router ospf"]
+    lines = ["router ospf", ""]
     if networks:
         try:
             nets = [ipaddress.ip_network(n, strict=False) for n in networks]
@@ -415,7 +418,7 @@ def mk_ospf_stanza(networks, area=None, stub=False, redistribute=None):
     return "\n".join(lines) + "\n\n"
 
 def mk_rip_stanza(networks, redistribute=None):
-    lines = ["router rip"]
+    lines = ["router rip", ""]
     for net in networks:
         lines.append(f"    network {net}")
     # Non aggiungiamo automaticamente `redistribute`.
@@ -433,7 +436,7 @@ def format_ospf_multi_area(area_nets_map, stub_areas=None):
     """
     if stub_areas is None:
         stub_areas = set()
-    lines = ["router ospf"]
+    lines = ["router ospf", ""]
     # ordiniamo le aree per stabilità (area 0.0.0.0 prima se presente)
     def area_sort_key(a):
         return (0 if a == '0.0.0.0' else 1, str(a))
