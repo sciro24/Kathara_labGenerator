@@ -82,6 +82,16 @@ import networkx as nx
 from pyvis.network import Network
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QAbstractAnimation
 
+# --- UTILS ---
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 # --- CUSTOM WIDGETS ---
 class HoverButton(QtWidgets.QPushButton):
     def __init__(self, text="", parent=None):
@@ -301,18 +311,9 @@ class TopologyView(QWebEngineView):
         # Helper per icone custom
         import base64
         
-        def get_resource_path(relative_path):
-            """ Get absolute path to resource, works for dev and for PyInstaller """
-            try:
-                # PyInstaller creates a temp folder and stores path in _MEIPASS
-                base_path = sys._MEIPASS
-            except Exception:
-                base_path = os.path.dirname(os.path.abspath(__file__))
-            return os.path.join(base_path, relative_path)
-
         def get_icon_data(name):
             # Cerca in icons/Name.ico
-            icon_path = get_resource_path(os.path.join('icons', f'{name}.ico'))
+            icon_path = resource_path(os.path.join('icons', f'{name}.ico'))
             if os.path.exists(icon_path):
                 try:
                     with open(icon_path, "rb") as f:
@@ -1238,12 +1239,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lab_name = None # Initialize lab_name
         
         # Set window icon with rounded corners
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            
-        icon_path = os.path.join(base_path, 'icons', 'logo.ico')
+        icon_path = resource_path(os.path.join('icons', 'logo.ico'))
         
         if os.path.exists(icon_path):
             icon = self.create_rounded_icon(icon_path)

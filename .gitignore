@@ -1,25 +1,28 @@
 # ------------------------------
-# 1. WHITELIST 
+# 1. WHITELIST (Inizia dalle cartelle che contengono tutto) 
 # ------------------------------
 
-# Ignora tutto il contenuto della cartella corrente e sottocartelle
-*
+# 1.1 Cartelle da tracciare (esclude la cartella dall'ignoranza universale)
+!icons/
+!images/
 
-# File specifici da tracciare
+# 1.2 File specifici da tracciare (esclude i file dall'ignoranza universale)
 !labGenerator_GUI.py
 !labGenerator.py
 !requirements.txt
 !README.md
 !.gitignore
 
-# Cartelle specifiche da tracciare (incluso il contenuto)
-!icons/
-!images/
-
 # ------------------------------
-# 2. GLOBAL EXCLUDES (Safety Net)
+# 2. GLOBAL IGNORE (Ignora tutto ciò che non è stato whitelistingato)
 # ------------------------------
 
+# Ignora tutto il contenuto della cartella corrente e sottocartelle
+*
+
+# ------------------------------
+# 3. GLOBAL EXCLUDES (Ignora specifici file/cartelle anche se non c'è l'ignoranza universale)
+# ------------------------------
 
 # macOS system files
 .DS_Store

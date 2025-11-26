@@ -2,3 +2,5 @@ PySide6>=6.5
 networkx>=3.0
 pyvis>=0.3.0
 watchdog>=3.0
+pyinstaller>=6.0
+Pillow>=10.0
