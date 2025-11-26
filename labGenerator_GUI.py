@@ -412,7 +412,7 @@ class TopologyView(QWebEngineView):
                     custom_img = get_icon_data('Cloud')
                     if custom_img:
                         cloud_id = f"Cloud_{node}"
-                        net.add_node(cloud_id, label="Internet", title="Internet/Cl", shape='image', image=custom_img, size=40)
+                        net.add_node(cloud_id, label="Internet", title="Internet", shape='image', image=custom_img, size=40)
                         # Connect LAN to Cloud
                         net.add_edge(node, cloud_id, color='#d0d7de', width=2, length=100)
             
@@ -495,9 +495,9 @@ class TopologyView(QWebEngineView):
                     if G.nodes[node_v].get('device_type') == 'lan':
                         is_lan_connection = True
                 
-                # Longer cables for LAN connections
+                # Longer cables for LAN connections to fit IP labels
                 if is_lan_connection:
-                    cable_length = 200
+                    cable_length = 250  # Increased for better IP visibility
                 
                 # Use smooth curves for Interface→LAN to avoid passing through devices
                 if is_interface_to_lan:
@@ -505,14 +505,14 @@ class TopologyView(QWebEngineView):
                 else:
                     smooth_config = False
                 
-                # Improved Edge Styling: variable cable length, smart smoothing
+                # Improved Edge Styling: variable cable length, smart smoothing, enhanced labels
                 if cable_length:
                     net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                                 font={'align': 'middle', 'size': 12, 'strokeWidth': 0},
+                                 font={'align': 'middle', 'size': 13, 'strokeWidth': 0, 'background': 'rgba(255,255,255,0.8)', 'strokeColor': '#ffffff'},
                                  length=cable_length, smooth=smooth_config)
                 else:
                     net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                                 font={'align': 'middle', 'size': 12, 'strokeWidth': 0}, smooth=smooth_config)
+                                 font={'align': 'middle', 'size': 13, 'strokeWidth': 0, 'background': 'rgba(255,255,255,0.8)', 'strokeColor': '#ffffff'}, smooth=smooth_config)
 
         # Salva su file temporaneo
         if self.temp_file:
