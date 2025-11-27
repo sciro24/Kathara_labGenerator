@@ -81,6 +81,7 @@ from PySide6.QtWebChannel import QWebChannel
 import networkx as nx
 from pyvis.network import Network
 from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QAbstractAnimation
+import traceback
 
 # --- UTILS ---
 def resource_path(relative_path):
@@ -266,7 +267,7 @@ class BackendHandler(QtCore.QObject):
 class TopologyView(QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.temp_file = None
+        self.temp_file = os.path.join(tempfile.gettempdir(), 'topology_view.html')
         self.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
         self.page().setBackgroundColor(QtGui.QColor(LIGHT_BG))
         
@@ -305,8 +306,8 @@ class TopologyView(QWebEngineView):
             net = Network(height="100%", width="100%", bgcolor=LIGHT_BG, font_color=TEXT_PRIMARY)
 
         # Opzioni fisiche
-        # Extreme repulsion and spring length to maximize separation
-        net.barnes_hut(gravity=-50000, central_gravity=0.1, spring_length=500, spring_strength=0.01, damping=0.09)
+        # Removed explicit barnes_hut call in favor of set_options below for full control
+        pass
         
         # Helper per icone custom
         import base64
@@ -458,9 +459,9 @@ class TopologyView(QWebEngineView):
                     is_device_to_interface = True
             
             if is_device_to_interface:
-                # Very short, thin connection so LAN appears to start from RJ45 icon
+                # Short connection so LAN appears to start from RJ45 icon, but long enough to be outside parent
                 net.add_edge(edge[0], edge[1], color='#e0e0e0', width=1, label='', 
-                             length=5, smooth=False, dashes=False)
+                             length=10, smooth=False, dashes=False)
             else:
                 # Normal connection (Interface→LAN or other)
                 # Show IP and LAN name
@@ -497,7 +498,7 @@ class TopologyView(QWebEngineView):
                 
                 # Longer cables for LAN connections to fit IP labels
                 if is_lan_connection:
-                    cable_length = 250  # Increased for better IP visibility
+                    cable_length = 250  # Increased for better IP visibility and separation
                 
                 # Use smooth curves for Interface→LAN to avoid passing through devices
                 if is_interface_to_lan:
@@ -514,28 +515,49 @@ class TopologyView(QWebEngineView):
                     net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
                                  font={'align': 'middle', 'size': 13, 'strokeWidth': 0, 'background': 'rgba(255,255,255,0.8)', 'strokeColor': '#ffffff'}, smooth=smooth_config)
 
-        # Salva su file temporaneo
-        if self.temp_file:
-            try: os.unlink(self.temp_file)
-            except: pass
-        
-        fd, self.temp_file = tempfile.mkstemp(suffix='.html')
-        os.close(fd)
-        
-        # Opzioni interazione
+        # Opzioni interazione e fisica avanzata
         net.set_options("""
         var options = {
+          "nodes": {
+            "font": {
+              "size": 16,
+              "face": "tahoma"
+            }
+          },
+          "edges": {
+            "color": {
+              "inherit": true
+            },
+            "smooth": {
+              "type": "continuous",
+              "forceDirection": "none"
+            }
+          },
+          "physics": {
+            "enabled": true,
+            "barnesHut": {
+              "gravitationalConstant": -30000,
+              "centralGravity": 0.3,
+              "springLength": 200,
+              "springConstant": 0.08,
+              "damping": 0.09,
+              "avoidOverlap": 1
+            },
+            "minVelocity": 0.75,
+            "solver": "barnesHut",
+            "stabilization": {
+              "enabled": true,
+              "iterations": 1000,
+              "updateInterval": 25,
+              "onlyDynamicEdges": false,
+              "fit": true
+            }
+          },
           "interaction": {
             "hover": true,
             "navigationButtons": true,
             "keyboard": true,
             "zoomView": true
-          },
-          "physics": {
-            "stabilization": false,
-            "barnesHut": {
-                "avoidOverlap": 1
-            }
           }
         }
         """)
@@ -685,7 +707,9 @@ class TopologyView(QWebEngineView):
 
             self.setHtml(html_content, baseUrl=QtCore.QUrl.fromLocalFile(os.path.dirname(self.temp_file) + os.sep))
         except Exception as e:
-            self.setHtml(f"<html><body><h2>Errore visualizzazione: {str(e)}</h2></body></html>")
+            import traceback
+            traceback.print_exc()
+            self.setHtml(f"<html><body><h2>Errore visualizzazione: {str(e)}</h2><pre>{traceback.format_exc()}</pre></body></html>")
 
 # --- DIALOGHI DI CONFIGURAZIONE ---
 
@@ -1902,8 +1926,8 @@ class MainWindow(QtWidgets.QMainWindow):
             
             
             for idx, iface in enumerate(data.get('interfaces', [])):
-                lan = iface.get('lan', '').strip()
-                ip = iface.get('ip', '').strip()
+                lan = str(iface.get('lan', '') or '').strip()
+                ip = str(iface.get('ip', '') or '').strip()
                 iface_name = iface.get('name', f'eth{idx}')
                 if lan:
                     lan_id = f"LAN_{lan}"
@@ -1924,8 +1948,8 @@ class MainWindow(QtWidgets.QMainWindow):
             G.add_node(name, device_type='host', label=name)
             # Host interfaces
             for idx, iface in enumerate(data.get('interfaces', [])):
-                lan = iface.get('lan', '').strip()
-                ip = iface.get('ip', '').strip()
+                lan = str(iface.get('lan', '') or '').strip()
+                ip = str(iface.get('ip', '') or '').strip()
                 iface_name = iface.get('name', f'eth{idx}')
                 if lan:
                     lan_id = f"LAN_{lan}"
@@ -1943,8 +1967,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # WWW
         for name, data in self.lab['www'].items():
             G.add_node(name, device_type='www', label=name)
-            lan = data.get('lan', '').strip()
-            ip = data.get('ip', '').strip()
+            lan = str(data.get('lan', '') or '').strip()
+            ip = str(data.get('ip', '') or '').strip()
             if lan:
                 lan_id = f"LAN_{lan}"
                 if not G.has_node(lan_id):
@@ -1962,8 +1986,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # DNS
         for name, data in self.lab['dns'].items():
             G.add_node(name, device_type='dns', label=name)
-            lan = data.get('lan', '').strip()
-            ip = data.get('ip', '').strip()
+            lan = str(data.get('lan', '') or '').strip()
+            ip = str(data.get('ip', '') or '').strip()
             if lan:
                 lan_id = f"LAN_{lan}"
                 if not G.has_node(lan_id):
@@ -1986,21 +2010,25 @@ class MainWindow(QtWidgets.QMainWindow):
         return G
 
     def redraw(self):
-        # Update List
-        self.dev_list.clear()
-        for n in sorted(self.lab['routers']): self.dev_list.addItem(f"[R] {n}")
-        for n in sorted(self.lab['hosts']): self.dev_list.addItem(f"[H] {n}")
-        for n in sorted(self.lab['www']): self.dev_list.addItem(f"[W] {n}")
-        for n in sorted(self.lab['dns']): self.dev_list.addItem(f"[D] {n}")
-        
-        # Update Topology Header with Lab Name
-        if hasattr(self, 'topo_header_label'):
-            lab_name = self.lab_name if self.lab_name else "Non Salvato"
-            self.topo_header_label.setText(f"<b>Topologia</b> ({lab_name})")
-        
-        # Update Graph
-        G = self.build_graph()
-        self.topo_view.set_graph(G)
+        try:
+            # Update List
+            self.dev_list.clear()
+            for n in sorted(self.lab['routers']): self.dev_list.addItem(f"[R] {n}")
+            for n in sorted(self.lab['hosts']): self.dev_list.addItem(f"[H] {n}")
+            for n in sorted(self.lab['www']): self.dev_list.addItem(f"[W] {n}")
+            for n in sorted(self.lab['dns']): self.dev_list.addItem(f"[D] {n}")
+            
+            # Update Topology Header with Lab Name
+            if hasattr(self, 'topo_header_label'):
+                lab_name = self.lab_name if self.lab_name else "Non Salvato"
+                self.topo_header_label.setText(f"<b>Topologia</b> ({lab_name})")
+            
+            # Update Graph
+            G = self.build_graph()
+            self.topo_view.set_graph(G)
+        except Exception as e:
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Errore Redraw", f"Errore durante il ridisegno della topologia:\n{str(e)}\n\n{traceback.format_exc()}")
 
     def capture_screenshot(self):
         """Trigger screenshot capture via JS"""
@@ -2604,7 +2632,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # self.scene.update() # REMOVED: TopologyView is WebEngineView, no scene attribute
             
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Errore Import", str(e))
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(self, "Errore Import", f"Errore durante l'importazione del lab:\n{str(e)}\n\n{traceback.format_exc()}")
 
 def main():
     # Fix per crash QWebEngineView su macOS e warning Skia/V8
