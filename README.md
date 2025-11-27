@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="images/bg.png" alt="Kathara Lab Generator Logo" width="200"/>
+  <img src="images/bg.png" alt="Kathara Lab Generator Logo" />
   
   # Kathara Lab Generator
   
