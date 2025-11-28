@@ -2143,6 +2143,86 @@ def aggiungi_customer_provider_wizard(base_path, routers):
         print(f"❌ Errore applicando la configurazione neighbor su {target}.")
 
 
+def aggiungi_redistribuzione_bgp_igp(base_path, routers):
+    print("\n=== Ridistribuzione BGP -> IGP (Route-map) ===")
+    # Filtra i router che hanno sia BGP che (RIP o OSPF)
+    candidates = {}
+    for rname, rdata in routers.items():
+        protos = rdata.get('protocols', [])
+        if 'bgp' in protos and ('rip' in protos or 'ospf' in protos):
+            candidates[rname] = rdata
+    
+    if not candidates:
+        print("Nessun router con BGP e (RIP o OSPF) trovato.")
+        return
+
+    target = select_router(candidates, prompt="Seleziona router:")
+    if not target:
+        return
+
+    # Chiedi IP del neighbor o Rete
+    import ipaddress
+    while True:
+        neigh_ip = input("Inserisci la RETE di collegamento con il neighbor BGP (es. 50.7.1.0/24): ").strip()
+        if not neigh_ip:
+             print("Inserisci un valore.")
+             continue
+        try:
+            # accetta sia 1.2.3.4 (diventa /32) che 1.2.3.0/24
+            net = ipaddress.ip_network(neigh_ip, strict=False)
+            prefix = str(net)
+            break
+        except ValueError:
+            print("❌ Formato non valido. Inserisci IP o CIDR (es. 10.0.0.1 o 10.0.0.0/24)")
+    
+    # Costruisci la configurazione globale
+    # prefix è già normalizzato (es. 10.0.0.1/32 o 50.7.1.0/24)
+    
+    global_conf = [
+        f"ip prefix-list myNeighbors permit {prefix} le 32",
+        "",
+        "route-map eBGP permit 10",
+        "    match ip next-hop prefix-list myNeighbors",
+        ""
+    ]
+    
+    fpath = os.path.join(base_path, target, "etc", "frr", "frr.conf")
+    if not os.path.exists(fpath):
+        print(f"File {fpath} non trovato.")
+        return
+
+    # Appendi configurazione globale
+    try:
+        with open(fpath, "a") as f:
+            f.write("\n\n")
+            for line in global_conf:
+                f.write(line + "\n")
+    except Exception as e:
+        print(f"❌ Errore scrivendo su {fpath}: {e}")
+        return
+            
+    # Aggiungi comando redistribute
+    protos = candidates[target]['protocols']
+    redist_cmd = "redistribute bgp route-map eBGP"
+    
+    applied = False
+    if 'rip' in protos:
+        if insert_lines_into_protocol_block(fpath, proto='rip', lines=['', redist_cmd]):
+            print(f"✅ Aggiunto '{redist_cmd}' a router rip.")
+            applied = True
+    
+    if 'ospf' in protos:
+        if insert_lines_into_protocol_block(fpath, proto='ospf', lines=['', redist_cmd]):
+            print(f"✅ Aggiunto '{redist_cmd}' a router ospf.")
+            applied = True
+            
+    if applied:
+        print(f"✅ Configurazione completata su {target}.")
+    else:
+        print("❌ Impossibile applicare la ridistribuzione (protocollo IGP non trovato nel file?).")
+
+
+
 def menu_post_creazione(base_path, routers):
     while True:
         items = [
@@ -2151,7 +2231,8 @@ def menu_post_creazione(base_path, routers):
             'Genera comando ping per tutti gli indirizzi del lab (copia/incolla)',
             'Aggiungi Policies BGP a un router',
             'Assegna un file resolv.conf specifico a un dispositivo',
-            "Aggiungi loopback a un dispositivo"
+            "Aggiungi loopback a un dispositivo",
+            "Ridistribuzione (Route-map)"
         ]
         print_menu('-------------- Menu post-creazione --------------', items, extra_options=[('0', 'Termina Programma')])
         # footer: mostrato in basso per identificazione dell'autore
@@ -2193,6 +2274,8 @@ def menu_post_creazione(base_path, routers):
             assegna_resolv_conf(base_path)
         elif choice == '6':
             aggiungi_loopback_menu(base_path, routers)
+        elif choice == '7':
+            aggiungi_redistribuzione_bgp_igp(base_path, routers)
         else:
             print('Scelta non valida, riprova.')
 
@@ -2747,7 +2830,8 @@ def opzioni_laboratorio_menu(base):
         items = [
             'Assegna un Resolver a un dispositivo',
             'Aggiungi Loopback',
-            'Applica Policies BGP'
+            'Applica Policies BGP',
+            'Ridistribuzione (Route-map)'
         ]
         print_menu('=== Opzioni Laboratorio ===', items, extra_options=[('0', 'Torna indietro')])
         choice = input('Seleziona (numero): ').strip()
@@ -2808,6 +2892,26 @@ def opzioni_laboratorio_menu(base):
                 policies_menu(target, routers_meta)
             except Exception as e:
                 print('Errore caricando il lab o aprendo policies:', e)
+
+        elif choice == '4':
+            # Ridistribuzione
+            target = input_non_vuoto('Percorso della directory del lab: ')
+            if not os.path.isdir(target):
+                print(f"Directory non trovata: {target}")
+                continue
+            xmlpath = os.path.join(target, os.path.basename(os.path.normpath(target)) + '.xml')
+            try:
+                if os.path.exists(xmlpath):
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(xmlpath)
+                else:
+                    out = rebuild_lab_metadata_and_export(target)
+                    if not out:
+                        print('Impossibile generare metadata del lab.')
+                        continue
+                    lab_name, routers_meta, _, _, _ = load_lab_from_xml(out)
+                aggiungi_redistribuzione_bgp_igp(target, routers_meta)
+            except Exception as e:
+                print('Errore:', e)
         
         else:
             print('Scelta non valida, riprova.')
