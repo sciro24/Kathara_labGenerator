@@ -287,7 +287,7 @@ class TopologyView(QWebEngineView):
 
         # Pagina di default
 
-    def set_graph(self, G):
+    def set_graph(self, G, lab_name=""):
         if not G.nodes:
             self.setHtml(f"""
             <html><body style="background-color:{LIGHT_BG}; color:{TEXT_SECONDARY}; 
@@ -304,6 +304,10 @@ class TopologyView(QWebEngineView):
         except TypeError:
             # Fallback per versioni vecchie
             net = Network(height="100%", width="100%", bgcolor=LIGHT_BG, font_color=TEXT_PRIMARY)
+        
+        # Add Lab Name Header
+        # if lab_name:
+        #    net.heading = f"Topologia: {lab_name}"
 
         # Opzioni fisiche
         # Removed explicit barnes_hut call in favor of set_options below for full control
@@ -418,102 +422,58 @@ class TopologyView(QWebEngineView):
                         net.add_edge(node, cloud_id, color='#d0d7de', width=2, length=100)
             
             elif dtype == 'interface':
-                # Small RJ45 icon for interface with label
-                custom_img = get_icon_data('rj45')
-                iface_label = data.get('label', '')
-                title = f"Interface: {iface_label}"
-                
-                if custom_img:
-                    shape = 'image'
-                    image = custom_img
-                    size = 12  # Smaller icon
-                    net.add_node(node, label=iface_label, title=title, shape=shape, image=image, size=size,
-                                font={'size': 10, 'color': '#24292f', 'face': 'monospace', 'align': 'left'})
-                else:
-                    # Fallback to black dot if icon not found
-                    shape = 'dot'
-                    color = {'background': '#000000', 'border': '#000000'}
-                    size = 6
-                    net.add_node(node, label=iface_label, title=title, shape=shape, color=color, size=size,
-                                font={'size': 10, 'color': '#24292f', 'face': 'monospace', 'align': 'left'})
+                continue
             
             # Fallback for others (if not handled above, use default shape/color)
             else:
                 net.add_node(node, label=node, title=title, shape=shape, color=color, size=size)
         
-        # Aggiungi archi con etichette (IP + Interfaccia)
-        for edge in G.edges(data=True):
-            # edge è (u, v, data)
-            ip = edge[2].get('label', '')
-            iface = edge[2].get('iface', '')
+        # Aggiungi archi: Bridge Interface Nodes (Device <-> LAN) e archi diretti
+        # 1. Bridge Interfaces
+        for node, data in G.nodes(data=True):
+            if data.get('device_type') == 'interface':
+                nbrs = list(G.neighbors(node))
+                # Expecting neighbors: [Device, LAN]
+                if len(nbrs) == 2:
+                    u, v = nbrs[0], nbrs[1]
+                    
+                    # Retrieve IP label (usually on Interface->LAN edge)
+                    # We check both edges and pick the one with a label
+                    ip = ''
+                    
+                    # Helper to get label safely
+                    def get_lbl(n1, n2):
+                        ed = G.get_edge_data(n1, n2)
+                        # Handle MultiGraph (returns dict of edges) or Graph (returns dict of attrs)
+                        if ed and isinstance(ed, dict):
+                            # If it has 'label' directly
+                            if 'label' in ed: return ed['label']
+                            # If it's a multigraph dict (key -> attrs), iterate
+                            for k in ed:
+                                if isinstance(ed[k], dict) and 'label' in ed[k]:
+                                    return ed[k]['label']
+                        return ''
+
+                    l1 = get_lbl(node, u)
+                    l2 = get_lbl(node, v)
+                    ip = l1 if l1 else l2
+                    
+                    # Add direct edge Device <-> LAN
+                    # We need to ensure u and v are in net (they should be, as they are not interfaces)
+                    net.add_edge(u, v, label=ip, width=2, length=200, color='#d0d7de',
+                                 font={'align': 'middle', 'size': 13, 'strokeWidth': 4, 'strokeColor': '#ffffff', 'color': '#24292f'},
+                                 smooth={'enabled': False})
+
+        # 2. Add existing non-interface edges (e.g. LAN <-> Cloud, or direct links)
+        for u, v, data in G.edges(data=True):
+            if u not in G.nodes or v not in G.nodes: continue
+            u_type = G.nodes[u].get('device_type')
+            v_type = G.nodes[v].get('device_type')
             
-            node_u = edge[0]
-            node_v = edge[1]
-            
-            # Check if this is a Device->Interface connection (should be short and invisible)
-            is_device_to_interface = False
-            if node_u in G.nodes and node_v in G.nodes:
-                if G.nodes[node_v].get('device_type') == 'interface':
-                    is_device_to_interface = True
-                elif G.nodes[node_u].get('device_type') == 'interface':
-                    is_device_to_interface = True
-            
-            if is_device_to_interface:
-                # Short connection so LAN appears to start from RJ45 icon, but long enough to be outside parent
-                net.add_edge(edge[0], edge[1], color='#e0e0e0', width=1, label='', 
-                             length=10, smooth=False, dashes=False)
-            else:
-                # Normal connection (Interface→LAN or other)
-                # Show IP and LAN name
-                ip = edge[2].get('label', '')
-                lan_name = edge[2].get('lan_name', '')
-                
-                # Build label: "LAN_NAME\nIP"
-                full_label = ''
-                if lan_name:
-                    full_label = lan_name
-                if ip:
-                    if full_label:
-                        full_label += f'\n{ip}'
-                    else:
-                        full_label = ip
-                
-                # Detect if this is an Interface→LAN connection
-                is_interface_to_lan = False
-                if node_u in G.nodes and node_v in G.nodes:
-                    u_type = G.nodes[node_u].get('device_type')
-                    v_type = G.nodes[node_v].get('device_type')
-                    if (u_type == 'interface' and v_type == 'lan') or (u_type == 'lan' and v_type == 'interface'):
-                        is_interface_to_lan = True
-                
-                # Detect LAN connections for longer cables
-                cable_length = None
-                is_lan_connection = False
-                if node_u in G.nodes:
-                    if G.nodes[node_u].get('device_type') == 'lan':
-                        is_lan_connection = True
-                if node_v in G.nodes:
-                    if G.nodes[node_v].get('device_type') == 'lan':
-                        is_lan_connection = True
-                
-                # Longer cables for LAN connections to fit IP labels
-                if is_lan_connection:
-                    cable_length = 250  # Increased for better IP visibility and separation
-                
-                # Use smooth curves for Interface→LAN to avoid passing through devices
-                if is_interface_to_lan:
-                    smooth_config = {'enabled': True, 'type': 'dynamic', 'roundness': 0.5}
-                else:
-                    smooth_config = False
-                
-                # Improved Edge Styling: variable cable length, smart smoothing, enhanced labels
-                if cable_length:
-                    net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                                 font={'align': 'middle', 'size': 13, 'strokeWidth': 0, 'background': 'rgba(255,255,255,0.8)', 'strokeColor': '#ffffff'},
-                                 length=cable_length, smooth=smooth_config)
-                else:
-                    net.add_edge(edge[0], edge[1], color='#d0d7de', width=2, label=full_label, 
-                                 font={'align': 'middle', 'size': 13, 'strokeWidth': 0, 'background': 'rgba(255,255,255,0.8)', 'strokeColor': '#ffffff'}, smooth=smooth_config)
+            if u_type != 'interface' and v_type != 'interface':
+                 net.add_edge(u, v, label=data.get('label', ''), width=2, length=200, color='#d0d7de',
+                              font={'align': 'middle', 'size': 13, 'strokeWidth': 4, 'strokeColor': '#ffffff', 'color': '#24292f'},
+                              smooth={'enabled': False})
 
         # Opzioni interazione e fisica avanzata
         net.set_options("""
@@ -2025,7 +1985,8 @@ class MainWindow(QtWidgets.QMainWindow):
             
             # Update Graph
             G = self.build_graph()
-            self.topo_view.set_graph(G)
+            lab_name = self.lab_name if self.lab_name else "Non Salvato"
+            self.topo_view.set_graph(G, lab_name)
         except Exception as e:
             traceback.print_exc()
             QtWidgets.QMessageBox.critical(self, "Errore Redraw", f"Errore durante il ridisegno della topologia:\n{str(e)}\n\n{traceback.format_exc()}")
