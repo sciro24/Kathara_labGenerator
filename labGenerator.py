@@ -2223,16 +2223,40 @@ def aggiungi_redistribuzione_bgp_igp(base_path, routers):
 
 
 
+def menu_opzioni_laboratorio(base_path, routers):
+    """Sottomenu per opzioni avanzate del laboratorio."""
+    while True:
+        items = [
+            'Imposta costo OSPF',
+            'Aggiungi Policies BGP',
+            'Aggiungi interfaccia loopback',
+            'Ridistribuzione (Route-map)',
+            'Assegna un resolver ad un dispositivo'
+        ]
+        print_menu('=== Opzioni Laboratorio ===', items, extra_options=[('0', 'Torna indietro')])
+        choice = input('Seleziona (numero): ').strip()
+        if choice == '0':
+            break
+        if choice == '1':
+            assegna_costo_interfaccia(base_path, routers)
+        elif choice == '2':
+            policies_menu(base_path, routers)
+        elif choice == '3':
+            aggiungi_loopback_menu(base_path, routers)
+        elif choice == '4':
+            aggiungi_redistribuzione_bgp_igp(base_path, routers)
+        elif choice == '5':
+            assegna_resolv_conf(base_path)
+        else:
+            print('Scelta non valida, riprova.')
+
+
 def menu_post_creazione(base_path, routers):
     while True:
         items = [
-            'Imposta costo OSPF su una interfaccia di un router',
-            'Rigenera file XML del laboratorio (da file modificati)',
-            'Genera comando ping per tutti gli indirizzi del lab (copia/incolla)',
-            'Aggiungi Policies BGP a un router',
-            'Assegna un file resolv.conf specifico a un dispositivo',
-            "Aggiungi loopback a un dispositivo",
-            "Ridistribuzione (Route-map)"
+            'Genera file XML aggiornato',
+            'Testa Funzionamento (PING)',
+            'Opzioni Laboratorio'
         ]
         print_menu('-------------- Menu post-creazione --------------', items, extra_options=[('0', 'Termina Programma')])
         # footer: mostrato in basso per identificazione dell'autore
@@ -2245,8 +2269,6 @@ def menu_post_creazione(base_path, routers):
             # torna al menu precedente
             break
         if choice == '1':
-            assegna_costo_interfaccia(base_path, routers)
-        elif choice == '2':
             # rigenera XML leggendo lab.conf / startup / etc per ricostruire lo stato corrente
             try:
                 xmlpath = rebuild_lab_metadata_and_export(base_path)
@@ -2256,7 +2278,7 @@ def menu_post_creazione(base_path, routers):
                     print("❌ Rigenerazione XML non riuscita.")
             except Exception as e:
                 print('Errore durante la rigenerazione XML:', e)
-        elif choice == '3':
+        elif choice == '2':
             try:
                 ips = collect_lab_ips(base_path, routers)
                 if not ips:
@@ -2268,14 +2290,8 @@ def menu_post_creazione(base_path, routers):
                     print('\n\n=== Fine comando ===\n')
             except Exception as e:
                 print('Errore generando il comando ping:', e)
-        elif choice == '4':
-            policies_menu(base_path, routers)
-        elif choice == '5':
-            assegna_resolv_conf(base_path)
-        elif choice == '6':
-            aggiungi_loopback_menu(base_path, routers)
-        elif choice == '7':
-            aggiungi_redistribuzione_bgp_igp(base_path, routers)
+        elif choice == '3':
+            menu_opzioni_laboratorio(base_path, routers)
         else:
             print('Scelta non valida, riprova.')
 
