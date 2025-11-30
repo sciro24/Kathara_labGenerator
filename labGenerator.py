@@ -413,19 +413,28 @@ def mk_ospf_stanza(networks, area=None, stub=False, redistribute=None):
             for net in networks:
                 area_str = f" area {area}" if area else ""
                 lines.append(f"    network {net}{area_str}")
+    # Aggiungi dichiarazioni stub prima dei comandi redistribute
     if stub and area:
         lines.append(f"area {area} stub")
+        lines.append("")  # riga vuota prima dei redistribute
+    # Aggiungi comandi redistribute se forniti
+    if redistribute:
+        for cmd in redistribute:
+            lines.append(f"    {cmd}")
     return "\n".join(lines) + "\n\n"
 
 def mk_rip_stanza(networks, redistribute=None):
     lines = ["router rip", ""]
     for net in networks:
         lines.append(f"    network {net}")
-    # Non aggiungiamo automaticamente `redistribute`.
+    # Aggiungi comandi redistribute se forniti
+    if redistribute:
+        for cmd in redistribute:
+            lines.append(f"    {cmd}")
     return "\n".join(lines) + "\n\n"
 
 
-def format_ospf_multi_area(area_nets_map, stub_areas=None):
+def format_ospf_multi_area(area_nets_map, stub_areas=None, redistribute=None):
     """
     Costruisce un unico blocco 'router ospf' che contiene tutte le network
     annotate con la relativa area, e le dichiarazioni 'area <id> stub'
@@ -433,6 +442,7 @@ def format_ospf_multi_area(area_nets_map, stub_areas=None):
 
     - area_nets_map: dict area_id -> list of network strings
     - stub_areas: iterable of area_id da marcare come stub
+    - redistribute: list of redistribute commands to add
     """
     if stub_areas is None:
         stub_areas = set()
@@ -447,6 +457,13 @@ def format_ospf_multi_area(area_nets_map, stub_areas=None):
     # aggiungi dichiarazioni stub dopo le network
     for area in sorted(stub_areas):
         lines.append(f"    area {area} stub")
+    # Aggiungi riga vuota prima dei redistribute se ci sono stub areas
+    if stub_areas and redistribute:
+        lines.append("")
+    # Aggiungi comandi redistribute se forniti
+    if redistribute:
+        for cmd in redistribute:
+            lines.append(f"    {cmd}")
     return "\n".join(lines) + "\n\n"
 
 # -------------------------
@@ -546,7 +563,28 @@ def crea_router_files(base_path, rname, data):
     # collapsed networks (fallback per OSPF/RIP quando necessario)
     aggregated_nets = collapse_interface_networks(combined_ips)
 
-    # Non creiamo più automaticamente direttive `redistribute`.
+    # Determina i comandi redistribute da aggiungere automaticamente
+    # - Se il router ha solo RIP o solo OSPF: aggiungi "redistribute connected"
+    # - Se il router ha BGP + RIP o BGP + OSPF: aggiungi "redistribute connected" e "redistribute bgp"
+    protos = data.get("protocols", [])
+    has_bgp = "bgp" in protos
+    has_ospf = "ospf" in protos
+    has_rip = "rip" in protos
+    
+    # Costruisci la lista di comandi redistribute per OSPF/RIP
+    ospf_redistribute = []
+    rip_redistribute = []
+    
+    if has_ospf:
+        ospf_redistribute.append("redistribute connected")
+        if has_bgp:
+            ospf_redistribute.append("redistribute bgp")
+    
+    if has_rip:
+        rip_redistribute.append("redistribute connected")
+        if has_bgp:
+            rip_redistribute.append("redistribute bgp")
+
     # OSPF: usa area se fornita nel dato del router (campo 'ospf_area'), supporta stub
     if "ospf" in data["protocols"]:
         area_main = data.get('ospf_area')
@@ -557,12 +595,12 @@ def crea_router_files(base_path, rname, data):
             # fallback: come prima
             chosen = choose_allowed_byte_aligned_supernet(combined_ips)
             nets_for_ospf = [chosen] if chosen else aggregated_nets
-            parts.append(mk_ospf_stanza(nets_for_ospf, area=area_main, stub=stub_main))
+            parts.append(mk_ospf_stanza(nets_for_ospf, area=area_main, stub=stub_main, redistribute=ospf_redistribute))
         elif len(groups) == 1:
             # unica nuvola: comportamento normale
             chosen = choose_allowed_byte_aligned_supernet(combined_ips)
             nets_for_ospf = [chosen] if chosen else aggregated_nets
-            parts.append(mk_ospf_stanza(nets_for_ospf, area=area_main, stub=stub_main))
+            parts.append(mk_ospf_stanza(nets_for_ospf, area=area_main, stub=stub_main, redistribute=ospf_redistribute))
         else:
             # multi-area: assegna l'area principale alla nuvola più grande
             main_key = max(groups.keys(), key=lambda k: len(groups[k]))
@@ -620,16 +658,16 @@ def crea_router_files(base_path, rname, data):
                 if a_stub:
                     stub_areas.add(a_id)
             # finally append a single multi-area ospf block
-            parts.append(format_ospf_multi_area(area_nets, stub_areas))
+            parts.append(format_ospf_multi_area(area_nets, stub_areas, redistribute=ospf_redistribute))
     # RIP: accorcia le reti alla network byte-aligned (/8,/16,/24) che copra tutte le LAN collegate
     # Per RIP/OSPF vogliamo considerare anche le loopback se presenti (possono
     # essere rilevanti per simulazioni), quindi usiamo `combined_ips`.
     if "rip" in data["protocols"]:
         rip_net = choose_allowed_byte_aligned_supernet(combined_ips)
         if rip_net:
-            parts.append(mk_rip_stanza([rip_net]))
+            parts.append(mk_rip_stanza([rip_net], redistribute=rip_redistribute))
         else:
-            parts.append(mk_rip_stanza(aggregated_nets))
+            parts.append(mk_rip_stanza(aggregated_nets, redistribute=rip_redistribute))
     # BGP: annuncia tutte le network collegate senza accorciarle (mantieni prefissi originali)
     # BGP viene aggiunto per ultimo per garantire che appaia in fondo al file frr.conf
     if "bgp" in data["protocols"]:
