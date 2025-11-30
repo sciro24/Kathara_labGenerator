@@ -547,9 +547,6 @@ def crea_router_files(base_path, rname, data):
     aggregated_nets = collapse_interface_networks(combined_ips)
 
     # Non creiamo più automaticamente direttive `redistribute`.
-    # BGP: annuncia tutte le network collegate senza accorciarle (mantieni prefissi originali)
-    if "bgp" in data["protocols"]:
-        parts.append(mk_bgp_stanza(data.get("asn", ""), networks=original_nets))
     # OSPF: usa area se fornita nel dato del router (campo 'ospf_area'), supporta stub
     if "ospf" in data["protocols"]:
         area_main = data.get('ospf_area')
@@ -633,6 +630,10 @@ def crea_router_files(base_path, rname, data):
             parts.append(mk_rip_stanza([rip_net]))
         else:
             parts.append(mk_rip_stanza(aggregated_nets))
+    # BGP: annuncia tutte le network collegate senza accorciarle (mantieni prefissi originali)
+    # BGP viene aggiunto per ultimo per garantire che appaia in fondo al file frr.conf
+    if "bgp" in data["protocols"]:
+        parts.append(mk_bgp_stanza(data.get("asn", ""), networks=original_nets))
 
     with open(os.path.join(etc_frr, "frr.conf"), "w") as f:
         f.write("\n".join(parts))
